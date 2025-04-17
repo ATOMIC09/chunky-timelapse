@@ -5,13 +5,15 @@ import json
 import subprocess
 import shutil
 import glob
+import re
 from pathlib import Path
 import threading
 import queue
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QComboBox, QLineEdit, 
-    QGroupBox, QFormLayout, QMessageBox, QTextEdit, QSplitter
+    QGroupBox, QFormLayout, QMessageBox, QTextEdit, QSplitter,
+    QListWidget, QAbstractItemView, QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QObject
 
@@ -53,6 +55,7 @@ class ProcessOutputReader(QObject):
 class ChunkyTimelapseApp(QMainWindow):
     # Add a signal for thread-safe log updates
     log_update_signal = pyqtSignal(str)
+    progress_update_signal = pyqtSignal(int, int)  # current, total
     
     def __init__(self):
         super().__init__()
@@ -60,20 +63,25 @@ class ChunkyTimelapseApp(QMainWindow):
         # Default paths
         self.chunky_launcher_path = ""
         self.scenes_dir = os.path.join(os.path.expanduser("~"), ".chunky", "scenes")
-        self.world_dir = ""
+        self.world_dir = ""  # Now this is the parent directory containing multiple worlds
         self.scene_name = ""
         self.scene_json_data = None
         self.current_process = None
         self.output_reader = None
+        self.world_list = []  # Store list of worlds found
+        self.render_queue = []  # Queue of worlds to render
+        self.currently_rendering = False
+        self.snapshot_pattern = None
         
-        # Connect signal to slot
+        # Connect signals to slots
         self.log_update_signal.connect(self.append_to_log)
+        self.progress_update_signal.connect(self.update_progress_bar)
         
         self.initUI()
         
     def initUI(self):
         self.setWindowTitle("Chunky Timelapse Generator")
-        self.setGeometry(100, 100, 900, 700)
+        self.setGeometry(100, 100, 1000, 800)
         
         # Create main splitter for upper and lower parts
         main_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -118,19 +126,45 @@ class ChunkyTimelapseApp(QMainWindow):
         scene_layout.addWidget(refresh_btn)
         paths_layout.addRow("Scene:", scene_layout)
         
-        # World Directory
+        # Input Worlds Directory (parent directory containing multiple worlds)
         world_layout = QHBoxLayout()
         self.world_dir_edit = QLineEdit()
-        self.world_dir_edit.setPlaceholderText("Path to Minecraft world directory")
+        self.world_dir_edit.setPlaceholderText("Path to parent directory containing Minecraft worlds")
         self.world_dir_edit.setReadOnly(True)
         world_browse_btn = QPushButton("Browse...")
         world_browse_btn.clicked.connect(self.browse_world_dir)
+        scan_worlds_btn = QPushButton("Scan Worlds")
+        scan_worlds_btn.clicked.connect(self.scan_worlds)
         world_layout.addWidget(self.world_dir_edit)
         world_layout.addWidget(world_browse_btn)
-        paths_layout.addRow("World Directory:", world_layout)
+        world_layout.addWidget(scan_worlds_btn)
+        paths_layout.addRow("Input Worlds:", world_layout)
         
         paths_group.setLayout(paths_layout)
         upper_layout.addWidget(paths_group)
+        
+        # World list and scene info in a horizontal split
+        horz_splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        # World list group
+        world_list_group = QGroupBox("Available Worlds")
+        world_list_layout = QVBoxLayout()
+        self.world_list_widget = QListWidget()
+        self.world_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        world_list_layout.addWidget(self.world_list_widget)
+        
+        # Worlds control buttons
+        worlds_buttons_layout = QHBoxLayout()
+        self.select_all_btn = QPushButton("Select All")
+        self.select_all_btn.clicked.connect(self.select_all_worlds)
+        self.deselect_all_btn = QPushButton("Deselect All")
+        self.deselect_all_btn.clicked.connect(self.deselect_all_worlds)
+        worlds_buttons_layout.addWidget(self.select_all_btn)
+        worlds_buttons_layout.addWidget(self.deselect_all_btn)
+        world_list_layout.addLayout(worlds_buttons_layout)
+        
+        world_list_group.setLayout(world_list_layout)
+        horz_splitter.addWidget(world_list_group)
         
         # Scene info
         scene_info_group = QGroupBox("Scene Information")
@@ -139,15 +173,28 @@ class ChunkyTimelapseApp(QMainWindow):
         self.scene_info_text.setReadOnly(True)
         scene_info_layout.addWidget(self.scene_info_text)
         scene_info_group.setLayout(scene_info_layout)
-        upper_layout.addWidget(scene_info_group)
+        horz_splitter.addWidget(scene_info_group)
+        
+        # Add horizontal splitter to upper layout
+        upper_layout.addWidget(horz_splitter)
+        
+        # Progress bar
+        progress_group = QGroupBox("Progress")
+        progress_layout = QVBoxLayout()
+        self.progress_bar = QProgressBar()
+        self.progress_label = QLabel("Ready")
+        progress_layout.addWidget(self.progress_bar)
+        progress_layout.addWidget(self.progress_label)
+        progress_group.setLayout(progress_layout)
+        upper_layout.addWidget(progress_group)
         
         # Buttons
         buttons_layout = QHBoxLayout()
         
         buttons_layout.addStretch()
         
-        self.render_button = QPushButton("Render Scene")
-        self.render_button.clicked.connect(self.render_scene)
+        self.render_button = QPushButton("Render Selected Worlds")
+        self.render_button.clicked.connect(self.start_render_queue)
         self.render_button.setEnabled(False)
         
         buttons_layout.addWidget(self.render_button)
@@ -177,7 +224,7 @@ class ChunkyTimelapseApp(QMainWindow):
         main_splitter.addWidget(log_group)
         
         # Set initial splitter sizes
-        main_splitter.setSizes([500, 200])
+        main_splitter.setSizes([600, 200])
         
         # Initialize scene dropdown
         self.refresh_scenes()
@@ -216,13 +263,45 @@ class ChunkyTimelapseApp(QMainWindow):
             
     def browse_world_dir(self):
         dir_path = QFileDialog.getExistingDirectory(
-            self, "Select Minecraft World Directory", ""
+            self, "Select Parent Directory Containing Minecraft Worlds", ""
         )
         if dir_path:
             self.world_dir = dir_path
             self.world_dir_edit.setText(dir_path)
+            self.scan_worlds()
             self.update_render_button_state()
             
+    def scan_worlds(self):
+        """Scan for Minecraft worlds in the selected directory"""
+        self.world_list = []
+        self.world_list_widget.clear()
+        
+        if not self.world_dir or not os.path.exists(self.world_dir):
+            return
+            
+        try:
+            # Look for directories containing level.dat
+            for item in os.listdir(self.world_dir):
+                item_path = os.path.join(self.world_dir, item)
+                if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, "level.dat")):
+                    self.world_list.append(item)
+            
+            # Populate the list widget
+            self.world_list_widget.addItems(self.world_list)
+            
+            count = len(self.world_list)
+            self.append_to_log(f"Found {count} Minecraft world{'s' if count != 1 else ''} in {self.world_dir}")
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to scan worlds: {str(e)}")
+    
+    def select_all_worlds(self):
+        for i in range(self.world_list_widget.count()):
+            self.world_list_widget.item(i).setSelected(True)
+            
+    def deselect_all_worlds(self):
+        self.world_list_widget.clearSelection()
+    
     def refresh_scenes(self):
         self.scene_combo.clear()
         
@@ -301,15 +380,223 @@ class ChunkyTimelapseApp(QMainWindow):
         # Check if all required fields are valid
         has_launcher = bool(self.chunky_launcher_path)
         has_scene = bool(self.scene_name)
-        has_world = bool(self.world_dir)
+        has_worlds_dir = bool(self.world_dir)
         has_json = self.scene_json_data is not None
         
         # Enable the button only if all conditions are met
-        can_render = has_launcher and has_scene and has_world and has_json
+        can_render = has_launcher and has_scene and has_worlds_dir and has_json
         
         # Use setEnabled with a bool value
         self.render_button.setEnabled(can_render)
         
+    def update_progress_bar(self, current, total):
+        self.progress_bar.setMaximum(total)
+        self.progress_bar.setValue(current)
+        self.progress_label.setText(f"Processing world {current} of {total}")
+            
+    def start_render_queue(self):
+        """Start rendering multiple worlds"""
+        if self.currently_rendering:
+            QMessageBox.warning(self, "Error", "A render is already in progress")
+            return
+            
+        # Get selected worlds
+        selected_worlds = [item.text() for item in self.world_list_widget.selectedItems()]
+        if not selected_worlds:
+            QMessageBox.warning(self, "Error", "No worlds selected for rendering")
+            return
+            
+        # Setup the render queue
+        self.render_queue = selected_worlds.copy()
+        self.currently_rendering = True
+        
+        # Find the snapshot pattern from the scene directory to use for renaming
+        self.detect_snapshot_pattern()
+        
+        # Start processing the queue
+        self.append_to_log(f"Starting batch render of {len(self.render_queue)} world(s)")
+        self.progress_update_signal.emit(0, len(self.render_queue))
+        self.process_render_queue()
+    
+    def detect_snapshot_pattern(self):
+        """Detect the snapshot filename pattern for the current scene"""
+        snapshot_dir = os.path.join(self.scenes_dir, self.scene_name, "snapshots")
+        if not os.path.exists(snapshot_dir):
+            self.snapshot_pattern = f"{self.scene_name}-*.png"
+            return
+            
+        # Look for existing snapshot files to determine the pattern
+        snapshot_files = glob.glob(os.path.join(snapshot_dir, f"{self.scene_name}-*.png"))
+        if snapshot_files:
+            # Extract just the filename from the first snapshot
+            filename = os.path.basename(snapshot_files[0])
+            # Use regex to get the pattern (e.g., "test2-64.png" becomes "test2-(\d+).png")
+            match = re.search(f"{self.scene_name}-(\d+).png", filename)
+            if match:
+                self.snapshot_pattern = f"{self.scene_name}-{match.group(1)}.png"
+            else:
+                self.snapshot_pattern = f"{self.scene_name}-*.png"
+        else:
+            self.snapshot_pattern = f"{self.scene_name}-*.png"
+            
+        self.append_to_log(f"Detected snapshot pattern: {self.snapshot_pattern}")
+        
+    def process_render_queue(self):
+        """Process the next world in the render queue"""
+        if not self.render_queue:
+            self.append_to_log("Batch rendering complete!")
+            self.currently_rendering = False
+            self.progress_update_signal.emit(0, 0)
+            self.progress_label.setText("Ready")
+            return
+            
+        # Get the next world to render
+        world_name = self.render_queue.pop(0)
+        world_path = os.path.join(self.world_dir, world_name)
+        
+        # Update progress bar
+        current_index = len(self.world_list) - len(self.render_queue)
+        self.progress_update_signal.emit(current_index, len(self.world_list))
+        
+        # Update the world path in the JSON
+        self.append_to_log(f"Processing world: {world_name}")
+        if not self.update_scene_json_with_path(world_path):
+            # Skip this world if updating JSON failed
+            self.append_to_log(f"Skipping world {world_name} due to JSON update failure")
+            self.process_render_queue()
+            return
+            
+        # Clean up .octree2 and .dump files before rendering
+        self.cleanup_scene_files()
+        
+        # Prepare for post-render actions by storing world name
+        self.current_world_name = world_name
+        
+        # Start the render
+        self.render_scene_for_queue()
+    
+    def update_scene_json_with_path(self, world_path):
+        """Update the scene JSON with a specific world path"""
+        if not self.scene_json_data:
+            return False
+            
+        try:
+            # Update world path in JSON
+            escaped_path = world_path.replace('\\', '\\\\')  # Properly escape backslashes
+            self.scene_json_data['world']['path'] = escaped_path
+            
+            # Save updated JSON
+            json_path = os.path.join(self.scenes_dir, self.scene_name, f"{self.scene_name}.json")
+            with open(json_path, 'w') as f:
+                json.dump(self.scene_json_data, f, indent=2)
+                
+            self.append_to_log(f"Updated scene JSON with world path: {world_path}")
+            return True
+                
+        except Exception as e:
+            self.append_to_log(f"Error updating scene JSON: {str(e)}")
+            return False
+    
+    def render_scene_for_queue(self):
+        """Render a scene as part of a batch queue"""
+        try:
+            cmd = [
+                "java", "-jar", self.chunky_launcher_path,
+                "-scene-dir", self.scenes_dir,
+                "-render", self.scene_name,
+                "-f"
+            ]
+            
+            # Display command in log
+            cmd_str = " ".join(cmd)
+            self.append_to_log(f"Starting render with command:\n{cmd_str}\n")
+            
+            # Start the process with pipe for stdout and stderr
+            self.current_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=False,
+                bufsize=1
+            )
+            
+            # Set up the output reader
+            self.output_reader = ProcessOutputReader(self.current_process)
+            self.output_reader.output_received.connect(self.append_to_log)
+            self.output_reader.start_reading()
+            
+            # Add monitoring thread to check when process is done
+            threading.Thread(target=self.monitor_queue_process, daemon=True).start()
+                
+        except Exception as e:
+            error_msg = f"Failed to start render: {str(e)}"
+            self.append_to_log(f"ERROR: {error_msg}")
+            # Continue with next world in queue even if this one failed
+            self.process_render_queue()
+            
+    def monitor_queue_process(self):
+        """Monitor the subprocess for queue processing and handle completion"""
+        if not self.current_process:
+            return
+            
+        # Wait for process to complete
+        return_code = self.current_process.wait()
+        
+        # Stop the output reader
+        if self.output_reader:
+            self.output_reader.stop()
+            
+        # Log the completion status
+        completion_msg = f"Render process completed with return code: {return_code}"
+        self.log_update_signal.emit(completion_msg)
+        
+        # Rename the snapshot file to include the world name
+        if return_code == 0:
+            self.rename_snapshot_with_world_name()
+            
+        # Process the next world in the queue
+        # Using a timer to avoid threading issues
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(1000, self.process_render_queue)
+            
+    def rename_snapshot_with_world_name(self):
+        """Rename the snapshot file to include the world name"""
+        try:
+            snapshot_dir = os.path.join(self.scenes_dir, self.scene_name, "snapshots")
+            if not os.path.exists(snapshot_dir):
+                self.append_to_log("No snapshots directory found")
+                return
+                
+            # Find the most recent snapshot file
+            snapshot_files = glob.glob(os.path.join(snapshot_dir, f"{self.scene_name}-*.png"))
+            if not snapshot_files:
+                self.append_to_log("No snapshot files found")
+                return
+                
+            # Sort by modification time to get the most recent one
+            latest_snapshot = max(snapshot_files, key=os.path.getmtime)
+            
+            # Create the new filename with world name
+            base_name = os.path.basename(latest_snapshot)
+            # Extract the SPP number from filename (test2-64.png → 64)
+            spp_match = re.search(f"{self.scene_name}-(\d+).png", base_name)
+            if spp_match:
+                spp_num = spp_match.group(1)
+                new_name = f"{self.scene_name}-{spp_num}-{self.current_world_name}.png"
+            else:
+                # Fallback if pattern doesn't match
+                name_parts = os.path.splitext(base_name)
+                new_name = f"{name_parts[0]}-{self.current_world_name}{name_parts[1]}"
+                
+            new_path = os.path.join(snapshot_dir, new_name)
+            
+            # Rename the file
+            shutil.copy2(latest_snapshot, new_path)
+            self.append_to_log(f"Saved snapshot as: {new_name}")
+            
+        except Exception as e:
+            self.append_to_log(f"Error renaming snapshot: {str(e)}")
+            
     def update_scene_json(self):
         if not self.scene_json_data or not self.world_dir:
             return False
@@ -364,6 +651,7 @@ class ChunkyTimelapseApp(QMainWindow):
             self.append_to_log(f"Error during cleanup: {str(e)}")
             
     def render_scene(self):
+        """Render a single scene (used when not in batch mode)"""
         if not self.update_scene_json():
             return
         
