@@ -2,7 +2,6 @@
 
 # Script to convert Minecraft Bedrock worlds to Java format and take snapshots
 # Using chunker-cli-1.7.0.jar and ChunkyLauncher.jar
-# ChunkyLauncher.jar must run first to create .chunky directory
 
 # Set default values for all parameters
 JAR_FILE="chunker-cli-1.7.0.jar"
@@ -10,16 +9,20 @@ CHUNKY_JAR="ChunkyLauncher.jar"
 INPUT_DIR="./worlds/"
 OUTPUT_DIR="./world_java/"
 FORMAT="JAVA_1_21_5"
-SCENE_NAME="smallnickbigtown-topview"
+SCENE_NAME="smallnickbigtown-topview" # User-defined scene name
 WORLD_NAME=""
 TEMP_DIR="./temp_world"
-TAKE_SNAPSHOT=true
-CONVERT_BEDROCK_JAVA=true
 SPP_TARGET="16"
 MINECRAFT_JAR_VERSION="1.21.5"
 CHUNKY_HOME_DIR="$HOME/.chunky"
 SCENE_DIR="$CHUNKY_HOME_DIR/scenes/$SCENE_NAME"
 CHUNKY_DOWNLOAD_URL="https://chunkyupdate.lemaik.de/ChunkyLauncher.jar"
+CONVERT_BEDROCK_JAVA=true
+TAKE_SNAPSHOT=true
+
+DISCORD_WEBHOOK_URL=""
+DISCORD_WEBHOOK_USERNAME="Chunky Photographer"
+DISCORD_WEBHOOK_AVATAR_URL="https://chunky-dev.github.io/docs/assets/hero.webp"
 
 # Function to display help
 show_help() {
@@ -34,6 +37,7 @@ show_help() {
     echo "  -n SCENE_NAME  Scene name for Chunky render (default: $SCENE_NAME)"
     echo "  -m MC_VERSION  Minecraft version for texture resources (default: $MINECRAFT_JAR_VERSION)"
     echo "  -d CHUNKY_DIR  Path to Chunky home directory (default: $CHUNKY_HOME_DIR)"
+    echo "  -u WEBHOOK_URL Discord webhook URL for notifications"
     echo "  -r            Take a snapshot after conversion (requires Chunky)"
     echo "  -b            Skip Bedrock to Java conversion (use existing world_java)"
     echo "  -h            Show this help"
@@ -41,7 +45,7 @@ show_help() {
 }
 
 # Process command line arguments
-while getopts "j:c:i:o:f:w:n:m:d:rbh" opt; do
+while getopts "j:c:i:o:f:w:n:m:d:u:rbh" opt; do
   case $opt in
     j) JAR_FILE="$OPTARG" ;;
     c) CHUNKY_JAR="$OPTARG" ;;
@@ -52,6 +56,7 @@ while getopts "j:c:i:o:f:w:n:m:d:rbh" opt; do
     n) SCENE_NAME="$OPTARG" ;;
     m) MINECRAFT_JAR_VERSION="$OPTARG" ;;
     d) CHUNKY_HOME_DIR="$OPTARG" ;;
+    u) DISCORD_WEBHOOK_URL="$OPTARG" ;;
     r) TAKE_SNAPSHOT=true ;;
     b) CONVERT_BEDROCK_JAVA=false ;;
     h) show_help ;;
@@ -139,6 +144,11 @@ if [ "$TAKE_SNAPSHOT" = true ]; then
     echo "  Take Snapshot: Yes"
 fi
 echo "  Convert World: $([ "$CONVERT_BEDROCK_JAVA" = true ] && echo "Yes" || echo "No")"
+if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+    echo "  Discord Webhook: Enabled"
+else
+    echo "  Discord Webhook: Disabled"
+fi
 
 # Only check for conversion dependencies if we're doing conversion
 if [ "$CONVERT_BEDROCK_JAVA" = true ]; then
@@ -179,14 +189,6 @@ if [ "$CONVERT_BEDROCK_JAVA" = true ]; then
             exit 1
         fi
     fi
-fi
-
-# Check if Chunky JAR exists when snapshot is enabled
-if [ "$TAKE_SNAPSHOT" = true ] && [ ! -f "$CHUNKY_JAR" ]; then
-    echo "Error: $CHUNKY_JAR not found!"
-    echo "Please download ChunkyLauncher.jar from https://chunkyupdate.lemaik.de/ChunkyLauncher.jar"
-    echo "Or specify a different path using the -c option"
-    exit 1
 fi
 
 if [ "$CONVERT_BEDROCK_JAVA" = true ]; then
@@ -313,6 +315,26 @@ if [ "$TAKE_SNAPSHOT" = true ]; then
         LATEST_SNAPSHOT=$(ls -t "$SNAPSHOT_DIR"/"$SCENE_NAME"-"$SPP_TARGET".png 2>/dev/null | head -1)
         if [ -n "$LATEST_SNAPSHOT" ]; then
             echo "Snapshot created successfully: $LATEST_SNAPSHOT"
+            
+            # Send Discord notification if webhook URL is provided
+            if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+                echo "Sending Discord notification..."
+                
+                # Make sure discord.sh is executable
+                if [ ! -x "./discord.sh" ]; then
+                    chmod +x ./discord.sh
+                fi
+                
+                # Format date for the message
+                CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
+                
+                # Send notification with the snapshot
+                ./discord.sh --webhook-url "$DISCORD_WEBHOOK_URL" \
+                          --file "$LATEST_SNAPSHOT" \
+                          --username "$DISCORD_WEBHOOK_USERNAME" \
+                          --avatar "$DISCORD_WEBHOOK_AVATAR_URL" \
+                          --text ""
+            fi
         else
             echo "Snapshot wasn't created or couldn't be found."
         fi
