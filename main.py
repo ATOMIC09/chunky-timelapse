@@ -4,14 +4,54 @@ import os
 import json
 import subprocess
 from pathlib import Path
+import threading
+import queue
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QComboBox, QLineEdit, 
-    QGroupBox, QFormLayout, QMessageBox, QTextEdit
+    QGroupBox, QFormLayout, QMessageBox, QTextEdit, QSplitter
 )
-from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QObject
+
+class ProcessOutputReader(QObject):
+    output_received = pyqtSignal(str)
+    
+    def __init__(self, process):
+        super().__init__()
+        self.process = process
+        self.queue = queue.Queue()
+        self.running = True
+        
+    def start_reading(self):
+        threading.Thread(target=self._read_output, daemon=True).start()
+        threading.Thread(target=self._process_queue, daemon=True).start()
+        
+    def _read_output(self):
+        for line in iter(self.process.stdout.readline, b''):
+            if not self.running:
+                break
+            try:
+                decoded_line = line.decode('utf-8').rstrip()
+                self.queue.put(decoded_line)
+            except UnicodeDecodeError:
+                self.queue.put("[Error decoding output line]")
+        
+    def _process_queue(self):
+        while self.running:
+            try:
+                line = self.queue.get(timeout=0.1)
+                self.output_received.emit(line)
+                self.queue.task_done()
+            except queue.Empty:
+                continue
+            
+    def stop(self):
+        self.running = False
 
 class ChunkyTimelapseApp(QMainWindow):
+    # Add a signal for thread-safe log updates
+    log_update_signal = pyqtSignal(str)
+    
     def __init__(self):
         super().__init__()
         
@@ -21,17 +61,25 @@ class ChunkyTimelapseApp(QMainWindow):
         self.world_dir = ""
         self.scene_name = ""
         self.scene_json_data = None
+        self.current_process = None
+        self.output_reader = None
+        
+        # Connect signal to slot
+        self.log_update_signal.connect(self.append_to_log)
         
         self.initUI()
         
     def initUI(self):
         self.setWindowTitle("Chunky Timelapse Generator")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 900, 700)
         
-        # Main layout
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        main_layout = QVBoxLayout(main_widget)
+        # Create main splitter for upper and lower parts
+        main_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.setCentralWidget(main_splitter)
+        
+        # Upper part widget
+        upper_widget = QWidget()
+        upper_layout = QVBoxLayout(upper_widget)
         
         # Path configuration group
         paths_group = QGroupBox("Configuration")
@@ -80,7 +128,7 @@ class ChunkyTimelapseApp(QMainWindow):
         paths_layout.addRow("World Directory:", world_layout)
         
         paths_group.setLayout(paths_layout)
-        main_layout.addWidget(paths_group)
+        upper_layout.addWidget(paths_group)
         
         # Scene info
         scene_info_group = QGroupBox("Scene Information")
@@ -89,7 +137,7 @@ class ChunkyTimelapseApp(QMainWindow):
         self.scene_info_text.setReadOnly(True)
         scene_info_layout.addWidget(self.scene_info_text)
         scene_info_group.setLayout(scene_info_layout)
-        main_layout.addWidget(scene_info_group)
+        upper_layout.addWidget(scene_info_group)
         
         # Buttons
         buttons_layout = QHBoxLayout()
@@ -101,10 +149,49 @@ class ChunkyTimelapseApp(QMainWindow):
         buttons_layout.addStretch()
         buttons_layout.addWidget(self.render_button)
         
-        main_layout.addLayout(buttons_layout)
+        upper_layout.addLayout(buttons_layout)
+        
+        # Add upper widget to splitter
+        main_splitter.addWidget(upper_widget)
+        
+        # Log panel (lower part)
+        log_group = QGroupBox("Process Output")
+        log_layout = QVBoxLayout()
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setFont(self.create_monospace_font())
+        log_layout.addWidget(self.log_text)
+        
+        # Log control buttons
+        log_buttons_layout = QHBoxLayout()
+        self.clear_log_button = QPushButton("Clear Log")
+        self.clear_log_button.clicked.connect(self.clear_log)
+        log_buttons_layout.addStretch()
+        log_buttons_layout.addWidget(self.clear_log_button)
+        log_layout.addLayout(log_buttons_layout)
+        
+        log_group.setLayout(log_layout)
+        main_splitter.addWidget(log_group)
+        
+        # Set initial splitter sizes
+        main_splitter.setSizes([500, 200])
         
         # Initialize scene dropdown
         self.refresh_scenes()
+        
+    def create_monospace_font(self):
+        font = self.log_text.font()
+        font.setFamily("Courier New")
+        return font
+    
+    def clear_log(self):
+        self.log_text.clear()
+        
+    def append_to_log(self, text):
+        self.log_text.append(text)
+        # Auto-scroll to bottom
+        scrollbar = self.log_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
         
     def browse_chunky_launcher(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -153,7 +240,8 @@ class ChunkyTimelapseApp(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to load scenes: {str(e)}")
             
-    def on_scene_selected(self, scene_name):
+    def on_scene_selected(self):
+        scene_name = self.scene_combo.currentText()
         # Reset state if no scene is selected
         if not scene_name:
             self.scene_name = ""
@@ -251,24 +339,48 @@ class ChunkyTimelapseApp(QMainWindow):
                 "-f"
             ]
             
-            # Display command
+            # Display command in log
             cmd_str = " ".join(cmd)
-            msg = f"Running command:\n{cmd_str}\n\nThis will start the rendering process. Continue?"
+            self.append_to_log(f"Starting render with command:\n{cmd_str}\n")
             
-            reply = QMessageBox.question(
-                self, "Confirm Render", msg,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            # Start the process with pipe for stdout and stderr
+            self.current_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=False,
+                bufsize=1
             )
             
-            if reply == QMessageBox.StandardButton.Yes:
-                subprocess.Popen(cmd)
-                QMessageBox.information(
-                    self, "Render Started", 
-                    "The render has been started. Check Chunky for progress."
-                )
+            # Set up the output reader
+            self.output_reader = ProcessOutputReader(self.current_process)
+            self.output_reader.output_received.connect(self.append_to_log)
+            self.output_reader.start_reading()
+            
+            # Add monitoring thread to check when process is done
+            threading.Thread(target=self.monitor_process, daemon=True).start()
                 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to start render: {str(e)}")
+            error_msg = f"Failed to start render: {str(e)}"
+            QMessageBox.critical(self, "Error", error_msg)
+            self.append_to_log(f"ERROR: {error_msg}")
+            
+    def monitor_process(self):
+        """Monitor the subprocess and cleanup when it's done"""
+        if not self.current_process:
+            return
+            
+        # Wait for process to complete
+        return_code = self.current_process.wait()
+        
+        # Stop the output reader
+        if self.output_reader:
+            self.output_reader.stop()
+            
+        # Log the completion status
+        completion_msg = f"\nProcess completed with return code: {return_code}"
+        # Use the signal/slot mechanism to safely update GUI from a non-GUI thread
+        self.log_update_signal.emit(completion_msg)
 
 def main():
     app = QApplication(sys.argv)
