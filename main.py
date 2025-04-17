@@ -489,7 +489,7 @@ class ChunkyTimelapseApp(QMainWindow):
             
         try:
             # Update world path in JSON
-            escaped_path = world_path.replace('\\', '\\\\')  # Properly escape backslashes
+            escaped_path = world_path.replace('\\', '\\\\')
             self.scene_json_data['world']['path'] = escaped_path
             
             # Save updated JSON
@@ -510,7 +510,7 @@ class ChunkyTimelapseApp(QMainWindow):
             cmd = [
                 "java", "-jar", self.chunky_launcher_path,
                 "-scene-dir", self.scenes_dir,
-                "-render", self.scene_name,
+                "-render", f'"{self.scene_name}"',
                 "-f"
             ]
             
@@ -519,7 +519,6 @@ class ChunkyTimelapseApp(QMainWindow):
             self.append_to_log(f"Starting render with command:\n{cmd_str}\n")
             
             # Start the process with pipe for stdout and stderr
-            # Fix: Remove bufsize parameter that was causing warnings
             self.current_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -669,7 +668,7 @@ class ChunkyTimelapseApp(QMainWindow):
             cmd = [
                 "java", "-jar", self.chunky_launcher_path,
                 "-scene-dir", self.scenes_dir,
-                "-render", self.scene_name,
+                "-render", f'"{self.scene_name}"',
                 "-f"
             ]
             
@@ -682,8 +681,7 @@ class ChunkyTimelapseApp(QMainWindow):
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=False,
-                bufsize=1
+                universal_newlines=False
             )
             
             # Set up the output reader
