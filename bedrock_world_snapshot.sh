@@ -10,7 +10,6 @@ CHUNKY_JAR="ChunkyLauncher.jar"
 INPUT_DIR="./worlds/"
 OUTPUT_DIR="./world_java/"
 FORMAT="JAVA_1_21_5"
-SCENE_DIR="$HOME/.chunky/scenes/smallnickbigtown-topview" # Edit your home directory
 SCENE_NAME="smallnickbigtown-topview"
 WORLD_NAME=""
 TEMP_DIR="./temp_world"
@@ -19,6 +18,8 @@ CONVERT_BEDROCK_JAVA=true
 SPP_TARGET="16"
 MINECRAFT_JAR_VERSION="1.21.5"
 CHUNKY_HOME_DIR="$HOME/.chunky"
+SCENE_DIR="$CHUNKY_HOME_DIR/scenes/$SCENE_NAME"
+CHUNKY_DOWNLOAD_URL="https://chunkyupdate.lemaik.de/ChunkyLauncher.jar"
 
 # Function to display help
 show_help() {
@@ -57,6 +58,44 @@ while getopts "j:c:i:o:f:w:n:m:d:rbh" opt; do
     \?) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
   esac
 done
+
+# Check if ChunkyLauncher.jar exists
+if [ "$TAKE_SNAPSHOT" = true ] && [ ! -f "$CHUNKY_JAR" ]; then
+    echo "ChunkyLauncher.jar not found at: $CHUNKY_JAR"
+    
+    # Check if wget is available
+    if command -v wget > /dev/null 2>&1; then
+        echo "Downloading ChunkyLauncher.jar using wget..."
+        wget -O "$CHUNKY_JAR" "$CHUNKY_DOWNLOAD_URL"
+        
+        # Check if download was successful
+        if [ ! -f "$CHUNKY_JAR" ]; then
+            echo "Error: Failed to download ChunkyLauncher.jar."
+            echo "Please download it manually from $CHUNKY_DOWNLOAD_URL"
+            exit 1
+        else
+            echo "Successfully downloaded ChunkyLauncher.jar."
+        fi
+    # Check if curl is available as alternative
+    elif command -v curl > /dev/null 2>&1; then
+        echo "Downloading ChunkyLauncher.jar using curl..."
+        curl -o "$CHUNKY_JAR" "$CHUNKY_DOWNLOAD_URL"
+        
+        # Check if download was successful
+        if [ ! -f "$CHUNKY_JAR" ]; then
+            echo "Error: Failed to download ChunkyLauncher.jar."
+            echo "Please download it manually from $CHUNKY_DOWNLOAD_URL"
+            exit 1
+        else
+            echo "Successfully downloaded ChunkyLauncher.jar."
+        fi
+    else
+        echo "Error: Neither wget nor curl is available."
+        echo "Please install wget or curl, or download ChunkyLauncher.jar manually from:"
+        echo "$CHUNKY_DOWNLOAD_URL"
+        exit 1
+    fi
+fi
 
 # Check if Chunky home directory exists
 if [ "$TAKE_SNAPSHOT" = true ] && [ ! -d "$CHUNKY_HOME_DIR" ]; then
@@ -145,7 +184,8 @@ fi
 # Check if Chunky JAR exists when snapshot is enabled
 if [ "$TAKE_SNAPSHOT" = true ] && [ ! -f "$CHUNKY_JAR" ]; then
     echo "Error: $CHUNKY_JAR not found!"
-    echo "Please provide the path to ChunkyLauncher.jar using the -c option"
+    echo "Please download ChunkyLauncher.jar from https://chunkyupdate.lemaik.de/ChunkyLauncher.jar"
+    echo "Or specify a different path using the -c option"
     exit 1
 fi
 
