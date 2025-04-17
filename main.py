@@ -9,11 +9,14 @@ import re
 from pathlib import Path
 import threading
 import queue
+import cv2
+import numpy as np
+from natsort import natsorted
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QComboBox, QLineEdit, 
     QGroupBox, QFormLayout, QMessageBox, QTextEdit, QSplitter,
-    QListWidget, QAbstractItemView, QProgressBar
+    QListWidget, QAbstractItemView, QProgressBar, QDialog, QSlider
 )
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QObject
 
@@ -51,6 +54,103 @@ class ProcessOutputReader(QObject):
             
     def stop(self):
         self.running = False
+
+class VideoSettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Video Export Settings")
+        self.setMinimumWidth(400)
+        
+        # Default settings
+        self.fps = 1
+        self.codec = "h264"
+        self.output_path = ""
+        
+        # Create layout
+        layout = QVBoxLayout(self)
+        
+        # FPS selector
+        fps_group = QGroupBox("Frames Per Second (FPS)")
+        fps_layout = QVBoxLayout()
+        self.fps_slider = QSlider(Qt.Orientation.Horizontal)
+        self.fps_slider.setRange(1, 60)
+        self.fps_slider.setValue(self.fps)
+        self.fps_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.fps_slider.setTickInterval(5)
+        self.fps_label = QLabel(f"FPS: {self.fps}")
+        self.fps_slider.valueChanged.connect(self.update_fps_label)
+        fps_layout.addWidget(self.fps_label)
+        fps_layout.addWidget(self.fps_slider)
+        fps_group.setLayout(fps_layout)
+        layout.addWidget(fps_group)
+        
+        # Codec selector
+        codec_group = QGroupBox("Video Codec")
+        codec_layout = QVBoxLayout()
+        self.codec_combo = QComboBox()
+        # Updated codecs for better compatibility
+        self.codec_combo.addItem("H.264 (.mp4) - Recommended for Messenger", "h264")
+        self.codec_combo.addItem("MPEG-4 (.mp4)", "mp4v")
+        self.codec_combo.addItem("AVI (.avi)", "XVID")
+        codec_layout.addWidget(self.codec_combo)
+        codec_info = QLabel("Note: H.264 is most compatible with messaging apps")
+        codec_info.setWordWrap(True)
+        codec_layout.addWidget(codec_info)
+        codec_group.setLayout(codec_layout)
+        layout.addWidget(codec_group)
+        
+        # Output file location
+        output_group = QGroupBox("Output File")
+        output_layout = QHBoxLayout()
+        self.output_path_edit = QLineEdit()
+        self.output_path_edit.setPlaceholderText("Output video file path")
+        self.output_path_edit.setReadOnly(True)
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self.browse_output)
+        output_layout.addWidget(self.output_path_edit)
+        output_layout.addWidget(browse_btn)
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        self.ok_button = QPushButton("Create Video")
+        self.ok_button.setEnabled(False)
+        self.ok_button.clicked.connect(self.accept)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        button_layout.addStretch()
+        button_layout.addWidget(cancel_button)
+        button_layout.addWidget(self.ok_button)
+        layout.addLayout(button_layout)
+        
+    def update_fps_label(self, value):
+        self.fps = value
+        self.fps_label.setText(f"FPS: {value}")
+        
+    def browse_output(self):
+        # Get selected codec info for proper file extension
+        codec_data = self.codec_combo.currentData()
+        extension = ".mp4" if codec_data in ["h264", "mp4v"] else ".avi"
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Video File", "", f"Video Files (*{extension})"
+        )
+        if file_path:
+            # Ensure correct extension
+            if not file_path.lower().endswith(extension):
+                file_path += extension
+                
+            self.output_path = file_path
+            self.output_path_edit.setText(file_path)
+            self.ok_button.setEnabled(True)
+            
+    def get_settings(self):
+        return {
+            "fps": self.fps,
+            "codec": self.codec_combo.currentData(),
+            "output_path": self.output_path
+        }
 
 class ChunkyTimelapseApp(QMainWindow):
     # Add a signal for thread-safe log updates
@@ -190,6 +290,11 @@ class ChunkyTimelapseApp(QMainWindow):
         
         # Buttons
         buttons_layout = QHBoxLayout()
+        
+        # Add Create Video button
+        self.create_video_btn = QPushButton("Create Video from Snapshots")
+        self.create_video_btn.clicked.connect(self.create_video_from_snapshots)
+        buttons_layout.addWidget(self.create_video_btn)
         
         buttons_layout.addStretch()
         
@@ -713,6 +818,124 @@ class ChunkyTimelapseApp(QMainWindow):
         completion_msg = f"\nProcess completed with return code: {return_code}"
         # Use the signal/slot mechanism to safely update GUI from a non-GUI thread
         self.log_update_signal.emit(completion_msg)
+        
+    def create_video_from_snapshots(self):
+        """Create a video from the rendered snapshots"""
+        if not self.scene_name:
+            QMessageBox.warning(self, "Error", "Please select a scene first")
+            return
+            
+        # Check for snapshots
+        snapshot_dir = os.path.join(self.scenes_dir, self.scene_name, "snapshots")
+        if not os.path.exists(snapshot_dir):
+            QMessageBox.warning(self, "Error", "No snapshots directory found")
+            return
+            
+        # Get list of snapshot images with world names
+        snapshot_files = glob.glob(os.path.join(snapshot_dir, f"{self.scene_name}-*-*.png"))
+        if not snapshot_files:
+            QMessageBox.warning(
+                self, 
+                "No Snapshots Found", 
+                f"No snapshots with world names found in {snapshot_dir}.\n\nMake sure you've rendered scenes with world names."
+            )
+            return
+            
+        # Sort snapshots naturally to ensure correct order
+        snapshot_files = natsorted(snapshot_files)
+        
+        # Ask user for video settings
+        settings_dialog = VideoSettingsDialog(self)
+        if settings_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+            
+        # Get settings
+        settings = settings_dialog.get_settings()
+        
+        # Create video
+        self.append_to_log(f"Creating video from {len(snapshot_files)} snapshots...")
+        threading.Thread(
+            target=self.create_video_thread,
+            args=(snapshot_files, settings),
+            daemon=True
+        ).start()
+        
+    def create_video_thread(self, snapshot_files, settings):
+        """Thread for creating video without blocking UI"""
+        try:
+            # Get first image to determine size
+            first_img = cv2.imread(snapshot_files[0])
+            height, width, _ = first_img.shape
+            
+            # Check if resolution needs to be adjusted for compatibility (most messengers prefer ≤1080p)
+            max_height = 1080
+            if height > max_height:
+                # Calculate new width to maintain aspect ratio
+                scale_factor = max_height / height
+                new_width = int(width * scale_factor)
+                new_height = max_height
+                self.log_update_signal.emit(f"Resizing frames from {width}x{height} to {new_width}x{new_height} for better compatibility")
+                resize_needed = True
+                output_size = (new_width, new_height)
+            else:
+                resize_needed = False
+                output_size = (width, height)
+                
+            # H.264 codec with specific parameters for messaging platforms
+            if settings['codec'] == 'h264':
+                # For H.264, use a specific FourCC and parameters optimal for messaging
+                fourcc = cv2.VideoWriter_fourcc(*'avc1')  # Alternative H.264 FourCC that works better on some systems
+            else:
+                # Use the selected codec
+                fourcc = cv2.VideoWriter_fourcc(*settings['codec'])
+                
+            # Setup video writer with optimized parameters
+            out = cv2.VideoWriter(
+                settings['output_path'],
+                fourcc,
+                settings['fps'],
+                output_size
+            )
+            
+            if not out.isOpened():
+                raise Exception(f"Could not open video writer with codec {settings['codec']}. Try using a different codec.")
+            
+            # Process each image
+            for i, img_path in enumerate(snapshot_files):
+                # Update progress in UI
+                progress_msg = f"Processing frame {i+1}/{len(snapshot_files)}"
+                self.log_update_signal.emit(progress_msg)
+                
+                # Read frame
+                frame = cv2.imread(img_path)
+                if frame is None:
+                    self.log_update_signal.emit(f"Warning: Could not read frame from {img_path}")
+                    continue
+                    
+                # Resize if needed
+                if resize_needed:
+                    frame = cv2.resize(frame, output_size, interpolation=cv2.INTER_LANCZOS4)
+                    
+                # Write the frame
+                out.write(frame)
+            
+            # Release video writer
+            out.release()
+            
+            # Final message
+            completion_msg = f"Video created successfully: {settings['output_path']}"
+            self.log_update_signal.emit(completion_msg)
+            
+            # Add compatibility note
+            if settings['codec'] == 'h264':
+                compatibility_note = ("Note: Your video is created using H.264 codec which should be compatible "
+                                    "with most messaging platforms. If you still encounter issues, try reducing "
+                                    "the resolution or framerate.")
+                self.log_update_signal.emit(compatibility_note)
+                
+        except Exception as e:
+            error_msg = f"Error creating video: {str(e)}"
+            self.log_update_signal.emit(error_msg)
 
 def main():
     app = QApplication(sys.argv)
