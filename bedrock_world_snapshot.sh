@@ -2,6 +2,7 @@
 
 # Script to convert Minecraft Bedrock worlds to Java format and take snapshots
 # Using chunker-cli-1.7.0.jar and ChunkyLauncher.jar
+# ChunkyLauncher.jar must run first to create .chunky directory
 
 # Set default values for all parameters
 JAR_FILE="chunker-cli-1.7.0.jar"
@@ -9,7 +10,7 @@ CHUNKY_JAR="ChunkyLauncher.jar"
 INPUT_DIR="./worlds/"
 OUTPUT_DIR="./world_java/"
 FORMAT="JAVA_1_21_5"
-SCENE_DIR="/home/atomic/.chunky/scenes/smallnickbigtown-topview" # Edit your home directory
+SCENE_DIR="$HOME/.chunky/scenes/smallnickbigtown-topview" # Edit your home directory
 SCENE_NAME="smallnickbigtown-topview"
 WORLD_NAME=""
 TEMP_DIR="./temp_world"
@@ -17,6 +18,7 @@ TAKE_SNAPSHOT=true
 CONVERT_BEDROCK_JAVA=true
 SPP_TARGET="16"
 MINECRAFT_JAR_VERSION="1.21.5"
+CHUNKY_HOME_DIR="$HOME/.chunky"
 
 # Function to display help
 show_help() {
@@ -30,6 +32,7 @@ show_help() {
     echo "  -w WORLD_NAME  Specific world folder name inside INPUT_DIR (default: first found)"
     echo "  -n SCENE_NAME  Scene name for Chunky render (default: $SCENE_NAME)"
     echo "  -m MC_VERSION  Minecraft version for texture resources (default: $MINECRAFT_JAR_VERSION)"
+    echo "  -d CHUNKY_DIR  Path to Chunky home directory (default: $CHUNKY_HOME_DIR)"
     echo "  -r            Take a snapshot after conversion (requires Chunky)"
     echo "  -b            Skip Bedrock to Java conversion (use existing world_java)"
     echo "  -h            Show this help"
@@ -37,7 +40,7 @@ show_help() {
 }
 
 # Process command line arguments
-while getopts "j:c:i:o:f:w:n:m:rbh" opt; do
+while getopts "j:c:i:o:f:w:n:m:d:rbh" opt; do
   case $opt in
     j) JAR_FILE="$OPTARG" ;;
     c) CHUNKY_JAR="$OPTARG" ;;
@@ -47,12 +50,32 @@ while getopts "j:c:i:o:f:w:n:m:rbh" opt; do
     w) WORLD_NAME="$OPTARG" ;;
     n) SCENE_NAME="$OPTARG" ;;
     m) MINECRAFT_JAR_VERSION="$OPTARG" ;;
+    d) CHUNKY_HOME_DIR="$OPTARG" ;;
     r) TAKE_SNAPSHOT=true ;;
     b) CONVERT_BEDROCK_JAVA=false ;;
     h) show_help ;;
     \?) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
   esac
 done
+
+# Check if Chunky home directory exists
+if [ "$TAKE_SNAPSHOT" = true ] && [ ! -d "$CHUNKY_HOME_DIR" ]; then
+    echo "Chunky home directory not found at: $CHUNKY_HOME_DIR"
+    echo "Running Chunky update to initialize the directory..."
+    
+    java -jar "$CHUNKY_JAR" --update
+    
+    # Check again if directory was created
+    if [ ! -d "$CHUNKY_HOME_DIR" ]; then
+        echo "Error: Failed to create Chunky home directory."
+        echo "Please run 'java -jar ChunkyLauncher.jar --update' manually and try again."
+        exit 1
+    else
+        echo "Chunky home directory initialized successfully."
+    fi
+else
+    echo "Chunky home directory found at: $CHUNKY_HOME_DIR"
+fi
 
 # Remove trailing slash if present
 INPUT_DIR=${INPUT_DIR%/}
@@ -70,6 +93,7 @@ if [ -n "$WORLD_NAME" ]; then
 fi
 if [ "$TAKE_SNAPSHOT" = true ]; then
     echo "  Chunky JAR:    $CHUNKY_JAR"
+    echo "  Chunky Home:   $CHUNKY_HOME_DIR"
     echo "  Scene Dir:     $SCENE_DIR"
     echo "  Scene Name:    $SCENE_NAME"
     echo "  MC Version:    $MINECRAFT_JAR_VERSION"
@@ -206,7 +230,7 @@ if [ "$TAKE_SNAPSHOT" = true ]; then
     fi
     
     # Check for minecraft.jar
-    MINECRAFT_JAR_PATH="$HOME/.chunky/resources/minecraft.jar"
+    MINECRAFT_JAR_PATH="$CHUNKY_HOME_DIR/resources/minecraft.jar"
     if [ ! -f "$MINECRAFT_JAR_PATH" ]; then
         echo "minecraft.jar not found at $MINECRAFT_JAR_PATH"
         echo "Downloading Minecraft $MINECRAFT_JAR_VERSION for texture resources..."
