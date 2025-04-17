@@ -9,13 +9,14 @@ CHUNKY_JAR="ChunkyLauncher.jar"
 INPUT_DIR="./worlds/"
 OUTPUT_DIR="./world_java/"
 FORMAT="JAVA_1_21_5"
-SCENE_DIR="/home/atomic/.chunky/scenes/smallnickbigtown-topview"
+SCENE_DIR="/home/atomic/.chunky/scenes/smallnickbigtown-topview" # Edit your home directory
 SCENE_NAME="smallnickbigtown-topview"
 WORLD_NAME=""
 TEMP_DIR="./temp_world"
 TAKE_SNAPSHOT=true
 CONVERT_BEDROCK_JAVA=true
 SPP_TARGET="16"
+MINECRAFT_JAR_VERSION="1.21.5"
 
 # Function to display help
 show_help() {
@@ -28,6 +29,7 @@ show_help() {
     echo "  -f FORMAT      Target Java format (default: $FORMAT)"
     echo "  -w WORLD_NAME  Specific world folder name inside INPUT_DIR (default: first found)"
     echo "  -n SCENE_NAME  Scene name for Chunky render (default: $SCENE_NAME)"
+    echo "  -m MC_VERSION  Minecraft version for texture resources (default: $MINECRAFT_JAR_VERSION)"
     echo "  -r            Take a snapshot after conversion (requires Chunky)"
     echo "  -b            Skip Bedrock to Java conversion (use existing world_java)"
     echo "  -h            Show this help"
@@ -35,7 +37,7 @@ show_help() {
 }
 
 # Process command line arguments
-while getopts "j:c:i:o:f:w:n:rbh" opt; do
+while getopts "j:c:i:o:f:w:n:m:rbh" opt; do
   case $opt in
     j) JAR_FILE="$OPTARG" ;;
     c) CHUNKY_JAR="$OPTARG" ;;
@@ -44,6 +46,7 @@ while getopts "j:c:i:o:f:w:n:rbh" opt; do
     f) FORMAT="$OPTARG" ;;
     w) WORLD_NAME="$OPTARG" ;;
     n) SCENE_NAME="$OPTARG" ;;
+    m) MINECRAFT_JAR_VERSION="$OPTARG" ;;
     r) TAKE_SNAPSHOT=true ;;
     b) CONVERT_BEDROCK_JAVA=false ;;
     h) show_help ;;
@@ -69,6 +72,7 @@ if [ "$TAKE_SNAPSHOT" = true ]; then
     echo "  Chunky JAR:    $CHUNKY_JAR"
     echo "  Scene Dir:     $SCENE_DIR"
     echo "  Scene Name:    $SCENE_NAME"
+    echo "  MC Version:    $MINECRAFT_JAR_VERSION"
     echo "  Take Snapshot: Yes"
 fi
 echo "  Convert World: $([ "$CONVERT_BEDROCK_JAVA" = true ] && echo "Yes" || echo "No")"
@@ -199,6 +203,23 @@ if [ "$TAKE_SNAPSHOT" = true ]; then
     if [ ! -f "$SCENE_JSON" ]; then
         echo "Error: Scene file $SCENE_JSON not found!"
         exit 1
+    fi
+    
+    # Check for minecraft.jar
+    MINECRAFT_JAR_PATH="$HOME/.chunky/resources/minecraft.jar"
+    if [ ! -f "$MINECRAFT_JAR_PATH" ]; then
+        echo "minecraft.jar not found at $MINECRAFT_JAR_PATH"
+        echo "Downloading Minecraft $MINECRAFT_JAR_VERSION for texture resources..."
+        java -jar "$CHUNKY_JAR" -download-mc "$MINECRAFT_JAR_VERSION"
+        
+        # Check if download was successful
+        if [ ! -f "$MINECRAFT_JAR_PATH" ]; then
+            echo "Warning: Failed to download minecraft.jar. Rendering may not include proper textures."
+        else
+            echo "Successfully downloaded minecraft.jar textures."
+        fi
+    else
+        echo "Found minecraft.jar textures."
     fi
     
     echo "Setting up Chunky scene..."
