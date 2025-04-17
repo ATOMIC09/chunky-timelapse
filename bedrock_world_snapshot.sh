@@ -15,6 +15,7 @@ WORLD_NAME=""
 TEMP_DIR="./temp_world"
 TAKE_SNAPSHOT=true
 CONVERT_BEDROCK_JAVA=true
+SPP_TARGET="16"
 
 # Function to display help
 show_help() {
@@ -224,7 +225,7 @@ if [ "$TAKE_SNAPSHOT" = true ]; then
     # Check if the snapshot was created
     if [ -d "$SNAPSHOT_DIR" ]; then
         # Find the latest snapshot
-        LATEST_SNAPSHOT=$(ls -t "$SNAPSHOT_DIR"/"$SCENE_NAME"-*.png 2>/dev/null | head -1)
+        LATEST_SNAPSHOT=$(ls -t "$SNAPSHOT_DIR"/"$SCENE_NAME"-"$SPP_TARGET".png 2>/dev/null | head -1)
         if [ -n "$LATEST_SNAPSHOT" ]; then
             echo "Snapshot created successfully: $LATEST_SNAPSHOT"
         else
