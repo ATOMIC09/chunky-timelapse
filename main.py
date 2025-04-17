@@ -431,7 +431,8 @@ class ChunkyTimelapseApp(QMainWindow):
             # Extract just the filename from the first snapshot
             filename = os.path.basename(snapshot_files[0])
             # Use regex to get the pattern (e.g., "test2-64.png" becomes "test2-(\d+).png")
-            match = re.search(f"{self.scene_name}-(\d+).png", filename)
+            # Fix: Properly escape the regex pattern with raw string
+            match = re.search(f"{self.scene_name}-(\\d+).png", filename)
             if match:
                 self.snapshot_pattern = f"{self.scene_name}-{match.group(1)}.png"
             else:
@@ -446,17 +447,23 @@ class ChunkyTimelapseApp(QMainWindow):
         if not self.render_queue:
             self.append_to_log("Batch rendering complete!")
             self.currently_rendering = False
-            self.progress_update_signal.emit(0, 0)
-            self.progress_label.setText("Ready")
-            return
             
+            # Reset the progress bar and label to show completion
+            self.progress_bar.setValue(self.progress_bar.maximum())
+            self.progress_label.setText("Rendering complete")
+            
+            # Re-enable UI elements that might have been disabled during rendering
+            self.render_button.setEnabled(True)
+            return
+                
         # Get the next world to render
         world_name = self.render_queue.pop(0)
         world_path = os.path.join(self.world_dir, world_name)
         
         # Update progress bar
         current_index = len(self.world_list) - len(self.render_queue)
-        self.progress_update_signal.emit(current_index, len(self.world_list))
+        total_worlds = len(self.world_list)
+        self.progress_update_signal.emit(current_index, total_worlds)
         
         # Update the world path in the JSON
         self.append_to_log(f"Processing world: {world_name}")
@@ -512,12 +519,12 @@ class ChunkyTimelapseApp(QMainWindow):
             self.append_to_log(f"Starting render with command:\n{cmd_str}\n")
             
             # Start the process with pipe for stdout and stderr
+            # Fix: Remove bufsize parameter that was causing warnings
             self.current_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=False,
-                bufsize=1
+                universal_newlines=False
             )
             
             # Set up the output reader
@@ -579,7 +586,8 @@ class ChunkyTimelapseApp(QMainWindow):
             # Create the new filename with world name
             base_name = os.path.basename(latest_snapshot)
             # Extract the SPP number from filename (test2-64.png → 64)
-            spp_match = re.search(f"{self.scene_name}-(\d+).png", base_name)
+            # Fix: Properly escape the regex pattern
+            spp_match = re.search(f"{self.scene_name}-(\\d+).png", base_name)
             if spp_match:
                 spp_num = spp_match.group(1)
                 new_name = f"{self.scene_name}-{spp_num}-{self.current_world_name}.png"
