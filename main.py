@@ -3,6 +3,8 @@ import sys
 import os
 import json
 import subprocess
+import shutil
+import glob
 from pathlib import Path
 import threading
 import queue
@@ -142,11 +144,12 @@ class ChunkyTimelapseApp(QMainWindow):
         # Buttons
         buttons_layout = QHBoxLayout()
         
+        buttons_layout.addStretch()
+        
         self.render_button = QPushButton("Render Scene")
         self.render_button.clicked.connect(self.render_scene)
         self.render_button.setEnabled(False)
         
-        buttons_layout.addStretch()
         buttons_layout.addWidget(self.render_button)
         
         upper_layout.addLayout(buttons_layout)
@@ -326,10 +329,46 @@ class ChunkyTimelapseApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to update scene JSON: {str(e)}")
             return False
+    
+    def cleanup_scene_files(self):
+        """Remove .octree2 and .dump files from the scene directory"""
+        if not self.scene_name or not self.scenes_dir:
+            return
+        
+        scene_path = os.path.join(self.scenes_dir, self.scene_name)
+        if not os.path.exists(scene_path):
+            return
+            
+        try:
+            # Find all .octree2 files
+            octree_files = glob.glob(os.path.join(scene_path, "*.octree2"))
+            dump_files = glob.glob(os.path.join(scene_path, "*.dump"))
+            
+            # Count files to be removed
+            total_files = len(octree_files) + len(dump_files)
+            self.append_to_log(f"Cleaning up: Found {total_files} files to remove...")
+            
+            # Remove .octree2 files
+            for file in octree_files:
+                os.remove(file)
+                self.append_to_log(f"Removed: {os.path.basename(file)}")
+                
+            # Remove .dump files
+            for file in dump_files:
+                os.remove(file)
+                self.append_to_log(f"Removed: {os.path.basename(file)}")
+                
+            self.append_to_log(f"Cleanup completed: {total_files} files removed.")
+            
+        except Exception as e:
+            self.append_to_log(f"Error during cleanup: {str(e)}")
             
     def render_scene(self):
         if not self.update_scene_json():
             return
+        
+        # Clean up .octree2 and .dump files before rendering
+        self.cleanup_scene_files()
             
         try:
             cmd = [
