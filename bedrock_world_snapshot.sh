@@ -17,6 +17,7 @@ MINECRAFT_JAR_VERSION="1.21.5"
 CHUNKY_HOME_DIR="$HOME/.chunky"
 SCENE_DIR="$CHUNKY_HOME_DIR/scenes/$SCENE_NAME"
 CHUNKY_DOWNLOAD_URL="https://chunkyupdate.lemaik.de/ChunkyLauncher.jar"
+DISCORD_SH_URL="https://raw.githubusercontent.com/fieu/discord.sh/master/discord.sh"
 CONVERT_BEDROCK_JAVA=true
 TAKE_SNAPSHOT=true
 
@@ -320,20 +321,40 @@ if [ "$TAKE_SNAPSHOT" = true ]; then
             if [ -n "$DISCORD_WEBHOOK_URL" ]; then
                 echo "Sending Discord notification..."
                 
-                # Make sure discord.sh is executable
-                if [ ! -x "./discord.sh" ]; then
-                    chmod +x ./discord.sh
+                # Check if discord.sh exists, download if not
+                if [ ! -f "./discord.sh" ]; then
+                    echo "discord.sh not found. Downloading from GitHub..."
+                    
+                    # Try with wget first
+                    if command -v wget > /dev/null 2>&1; then
+                        wget -O "./discord.sh" "$DISCORD_SH_URL"
+                    # Fall back to curl if wget is not available
+                    elif command -v curl > /dev/null 2>&1; then
+                        curl -o "./discord.sh" "$DISCORD_SH_URL"
+                    else
+                        echo "Error: Neither wget nor curl is available to download discord.sh"
+                        echo "Please download discord.sh manually from $DISCORD_SH_URL"
+                        echo "Discord notification will be skipped."
+                    fi
                 fi
                 
-                # Format date for the message
-                CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
-                
-                # Send notification with the snapshot
-                ./discord.sh --webhook-url "$DISCORD_WEBHOOK_URL" \
-                          --file "$LATEST_SNAPSHOT" \
-                          --username "$DISCORD_WEBHOOK_USERNAME" \
-                          --avatar "$DISCORD_WEBHOOK_AVATAR_URL" \
-                          --text ""
+                # Make sure discord.sh is executable
+                if [ -f "./discord.sh" ]; then
+                    chmod +x ./discord.sh
+                    
+                    # Format date for the message
+                    CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
+                    
+                    # Send notification with the snapshot
+                    ./discord.sh --webhook-url "$DISCORD_WEBHOOK_URL" \
+                              --file "$LATEST_SNAPSHOT" \
+                              --username "$DISCORD_WEBHOOK_USERNAME" \
+                              --avatar "$DISCORD_WEBHOOK_AVATAR_URL" \
+                              --text ""
+                else
+                    echo "Error: discord.sh not found or couldn't be downloaded."
+                    echo "Discord notification will be skipped."
+                fi
             fi
         else
             echo "Snapshot wasn't created or couldn't be found."
