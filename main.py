@@ -586,7 +586,6 @@ class ChunkyTimelapseApp(QMainWindow):
             # Create the new filename with world name
             base_name = os.path.basename(latest_snapshot)
             # Extract the SPP number from filename (test2-64.png → 64)
-            # Fix: Properly escape the regex pattern
             spp_match = re.search(f"{self.scene_name}-(\\d+).png", base_name)
             if spp_match:
                 spp_num = spp_match.group(1)
@@ -598,10 +597,10 @@ class ChunkyTimelapseApp(QMainWindow):
                 
             new_path = os.path.join(snapshot_dir, new_name)
             
-            # Rename the file
-            shutil.copy2(latest_snapshot, new_path)
-            self.append_to_log(f"Saved snapshot as: {new_name}")
-            
+            # Instead of copying, move the file (rename)
+            shutil.move(latest_snapshot, new_path)
+            self.append_to_log(f"Renamed snapshot to: {new_name}")
+                
         except Exception as e:
             self.append_to_log(f"Error renaming snapshot: {str(e)}")
             
