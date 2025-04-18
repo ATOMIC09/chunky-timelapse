@@ -49,6 +49,12 @@ show_help() {
 # Function to convert hex to decimal
 hex_to_decimal() {
     local hex=$1
+    # Remove potential leading zeros
+    hex=$(echo "$hex" | sed 's/^0*//')
+    # If hex is empty after removing zeros, it was all zeros
+    if [ -z "$hex" ]; then
+        hex="0"
+    fi
     echo $((16#$hex))
 }
 
@@ -299,24 +305,92 @@ else
     # Extract world time from level.dat.json if it exists
     if [ -f "$LEVEL_DAT_JSON_PATH" ]; then
         echo "Extracting world information from level.dat.json..."
-        # Extract Time payload using grep and cut
-        TIME_HEX=$(grep -o '"Label":"Time","Payload":"[^"]*"' "$LEVEL_DAT_JSON_PATH" | cut -d '"' -f 6)
-        if [ -n "$TIME_HEX" ]; then
-            # Convert hex to decimal
-            TIME_DEC=$(hex_to_decimal "$TIME_HEX")
-            echo "World Time: $TIME_DEC ticks"
-            # Calculate days (20 min per day, 24000 ticks per day)
-            DAYS=$(($TIME_DEC / 24000))
-            WORLD_INFO="World Time: $TIME_DEC ticks (Day $DAYS)"
+        
+        # Use grep with different pattern that matches the actual JSON format
+        # This will find the Time tag with format {"Tag":"04", "Label":"Time", "Payload":"HEXVALUE"},
+        TIME_LINE=$(grep -o '{.*"Label":"Time".*"Payload":"[^"]*".*}' "$LEVEL_DAT_JSON_PATH")
+        
+        if [ -n "$TIME_LINE" ]; then
+            # Extract the hex payload using sed
+            TIME_HEX=$(echo "$TIME_LINE" | sed -n 's/.*"Payload":"\([^"]*\)".*/\1/p')
+            
+            if [ -n "$TIME_HEX" ]; then
+                # Convert hex to decimal
+                TIME_DEC=$(hex_to_decimal "$TIME_HEX")
+                echo "World Time (hex): $TIME_HEX"
+                echo "World Time (decimal): $TIME_DEC ticks"
+                
+                # Calculate days (20 min per day, 24000 ticks per day)
+                DAYS=$(($TIME_DEC / 24000))
+                REMAINING_TICKS=$(($TIME_DEC % 24000))
+                HOURS=$(($REMAINING_TICKS / 1000))
+                
+                # Format time of day using 24-hour clock
+                TIME_OF_DAY=$(printf "%02d:00" $HOURS)
+                
+                # Determine if it's day or night
+                if [ $HOURS -ge 6 ] && [ $HOURS -lt 18 ]; then
+                    DAYNIGHT="day"
+                else
+                    DAYNIGHT="night"
+                fi
+                
+                WORLD_INFO="World Time: $TIME_DEC ticks (Day $DAYS, $TIME_OF_DAY, $DAYNIGHT)"
+            else
+                WORLD_INFO="Time value found but couldn't extract hex payload"
+            fi
         else
             WORLD_INFO="Time value not found in level.dat.json"
+            # Fallback to alternative grep pattern
+            TIME_LINE=$(grep -o '"Label":"Time".*"Payload":"[^"]*"' "$LEVEL_DAT_JSON_PATH")
+            if [ -n "$TIME_LINE" ]; then
+                TIME_HEX=$(echo "$TIME_LINE" | sed -n 's/.*"Payload":"\([^"]*\)".*/\1/p')
+                if [ -n "$TIME_HEX" ]; then
+                    TIME_DEC=$(hex_to_decimal "$TIME_HEX")
+                    echo "Found Time using fallback method: $TIME_DEC ticks"
+                    DAYS=$(($TIME_DEC / 24000))
+                    WORLD_INFO="World Time: $TIME_DEC ticks (Day $DAYS)"
+                fi
+            fi
         fi
         
-        # Extract world name if available
-        LEVEL_NAME=$(grep -o '"Label":"LevelName","Payload":"[^"]*"' "$LEVEL_DAT_JSON_PATH" | cut -d '"' -f 6)
-        if [ -n "$LEVEL_NAME" ]; then
-            WORLD_INFO="$WORLD_INFO\nWorld Name: $LEVEL_NAME"
+        # Extract world name using better grep pattern
+        LEVEL_NAME_LINE=$(grep -o '{.*"Label":"LevelName".*"Payload":"[^"]*".*}' "$LEVEL_DAT_JSON_PATH")
+        if [ -n "$LEVEL_NAME_LINE" ]; then
+            LEVEL_NAME=$(echo "$LEVEL_NAME_LINE" | sed -n 's/.*"Payload":"\([^"]*\)".*/\1/p')
+            if [ -n "$LEVEL_NAME" ]; then
+                WORLD_INFO="$WORLD_INFO\nWorld Name: $LEVEL_NAME"
+            fi
         fi
+        
+        # Extract DayTime if available
+        DAY_TIME_LINE=$(grep -o '{.*"Label":"DayTime".*"Payload":"[^"]*".*}' "$LEVEL_DAT_JSON_PATH")
+        if [ -n "$DAY_TIME_LINE" ]; then
+            DAY_TIME_HEX=$(echo "$DAY_TIME_LINE" | sed -n 's/.*"Payload":"\([^"]*\)".*/\1/p')
+            if [ -n "$DAY_TIME_HEX" ]; then
+                DAY_TIME_DEC=$(hex_to_decimal "$DAY_TIME_HEX")
+                WORLD_INFO="$WORLD_INFO\nDay Time: $DAY_TIME_DEC ticks"
+            fi
+        fi
+        
+        # Extract difficulty if available
+        DIFF_LINE=$(grep -o '{.*"Label":"Difficulty".*"Payload":"[^"]*".*}' "$LEVEL_DAT_JSON_PATH")
+        if [ -n "$DIFF_LINE" ]; then
+            DIFF_HEX=$(echo "$DIFF_LINE" | sed -n 's/.*"Payload":"\([^"]*\)".*/\1/p')
+            if [ -n "$DIFF_HEX" ]; then
+                DIFF_DEC=$(hex_to_decimal "$DIFF_HEX")
+                DIFF_NAME=""
+                case $DIFF_DEC in
+                    0) DIFF_NAME="Peaceful" ;;
+                    1) DIFF_NAME="Easy" ;;
+                    2) DIFF_NAME="Normal" ;;
+                    3) DIFF_NAME="Hard" ;;
+                    *) DIFF_NAME="Unknown" ;;
+                esac
+                WORLD_INFO="$WORLD_INFO\nDifficulty: $DIFF_NAME"
+            fi
+        fi
+        
     else
         WORLD_INFO="Could not generate level.dat.json"
     fi
