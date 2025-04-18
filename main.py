@@ -384,12 +384,11 @@ class ChunkyTimelapseApp(QMainWindow):
             
     def parse_date_from_world_name(self, world_name):
         """
-        Parses a date from a world name with format world-DDMMYY
+        Parses a date from a world name with format [arbitrary name]-DDMMYY
         Returns a datetime object if successful, or None if not a valid date format
         """
-        # Try to extract a DDMMYY pattern from the world name
-        # Check for prefix like "world-" followed by DDMMYY
-        date_match = re.match(r'world-(\d{2})(\d{2})(\d{2})', world_name)
+        # Look for any text followed by a dash and DDMMYY pattern
+        date_match = re.search(r'-(\d{2})(\d{2})(\d{2})$', world_name)
         if date_match:
             try:
                 day = int(date_match.group(1))
