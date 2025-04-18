@@ -22,6 +22,8 @@ Especially useful when you have backed up worlds with date suffixes, this tool c
 You can see all versions from `Releases` tab
 - [`Download for Windows (v1.0)`](https://github.com/ATOMIC09/chunky-timelapse/releases/download/v1.0/ChunkyTimelapse-1.0-windows-x86_64.exe)
 
+*(If you found any bugs of the exe, please try running `main.py` instead)*
+
 ## Features
 
 - **Batch Render Multiple Worlds**: Select multiple Minecraft world directories and render them in sequence
