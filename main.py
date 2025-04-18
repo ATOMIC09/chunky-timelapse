@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import sys
 import os
 import json
@@ -13,12 +12,8 @@ import cv2
 from datetime import datetime
 import urllib.request
 import urllib.error
+import mcworldlib as mc
 
-# Add mcworldlib import for reading Minecraft world data
-try:
-    import mcworldlib as mc
-except ImportError:
-    mc = None
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -26,7 +21,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QFormLayout, QMessageBox, QTextEdit, QSplitter,
     QListWidget, QAbstractItemView, QProgressBar, QDialog, QSlider
 )
-from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, pyqtSignal, QObject
 
 class ProcessOutputReader(QObject):
     output_received = pyqtSignal(str)
