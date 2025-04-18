@@ -4,14 +4,14 @@
 # Using chunker-cli-1.7.0.jar and ChunkyLauncher.jar
 
 # Set default values for all parameters
-JAR_FILE="chunker-cli-1.7.0.jar"
-CHUNKY_JAR="ChunkyLauncher.jar"
-INPUT_DIR="./worlds/"
-OUTPUT_DIR="./world_java/"
+JAR_FILE="$HOME/world-snapshot/chunker-cli-1.7.0.jar"
+CHUNKY_JAR="$HOME/world-snapshot/ChunkyLauncher.jar"
+INPUT_DIR="$HOME/world-snapshot/worlds"
+OUTPUT_DIR="$HOME/world-snapshot/world_java/"
 FORMAT="JAVA_1_21_5"
 SCENE_NAME="smallnickbigtown-topview" # User-defined scene name
 WORLD_NAME=""
-TEMP_DIR="./temp_world"
+TEMP_DIR="$HOME/world-snapshot/temp_world"
 SPP_TARGET="16"
 MINECRAFT_JAR_VERSION="1.21.5"
 CHUNKY_HOME_DIR="$HOME/.chunky"
