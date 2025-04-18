@@ -18,6 +18,7 @@ CHUNKY_HOME_DIR="$HOME/.chunky"
 SCENE_DIR="$CHUNKY_HOME_DIR/scenes/$SCENE_NAME"
 CHUNKY_DOWNLOAD_URL="https://chunkyupdate.lemaik.de/ChunkyLauncher.jar"
 DISCORD_SH_URL="https://raw.githubusercontent.com/fieu/discord.sh/master/discord.sh"
+NBT2JSON_SH_URL="https://raw.githubusercontent.com/mridlen/nbt2json/refs/heads/main/nbt2json.sh"
 CONVERT_BEDROCK_JAVA=true
 TAKE_SNAPSHOT=true
 
@@ -43,6 +44,12 @@ show_help() {
     echo "  -b            Skip Bedrock to Java conversion (use existing world_java)"
     echo "  -h            Show this help"
     exit 0
+}
+
+# Function to convert hex to decimal
+hex_to_decimal() {
+    local hex=$1
+    echo $((16#$hex))
 }
 
 # Process command line arguments
@@ -255,6 +262,66 @@ else
     echo "Using existing Java world in $OUTPUT_DIR"
 fi
 
+# Process level.dat to extract world information
+echo "Processing level.dat to extract world information..."
+LEVEL_DAT_PATH="$OUTPUT_DIR/level.dat"
+LEVEL_DAT_JSON_PATH="$OUTPUT_DIR/level.dat.json"
+
+# Check if level.dat exists
+if [ ! -f "$LEVEL_DAT_PATH" ]; then
+    echo "Warning: level.dat not found at $LEVEL_DAT_PATH"
+    WORLD_INFO="World information not available"
+else
+    # Check for nbt2json.sh
+    if [ ! -f "./nbt2json.sh" ]; then
+        echo "nbt2json.sh not found. Downloading from $NBT2JSON_SH_URL..."
+        
+        # Try with wget first
+        if command -v wget > /dev/null 2>&1; then
+            wget -O "./nbt2json.sh" "$NBT2JSON_SH_URL"
+        # Fall back to curl if wget is not available
+        elif command -v curl > /dev/null 2>&1; then
+            curl -o "./nbt2json.sh" "$NBT2JSON_SH_URL"
+        else
+            echo "Error: Neither wget nor curl is available to download nbt2json.sh"
+            echo "Please download nbt2json.sh manually from $NBT2JSON_SH_URL"
+            exit 1
+        fi
+        
+        # Make sure nbt2json.sh is executable
+        chmod +x ./nbt2json.sh
+    fi
+    
+    # Run nbt2json.sh to convert level.dat to JSON
+    echo "Converting level.dat to JSON..."
+    ./nbt2json.sh "$LEVEL_DAT_PATH"
+    
+    # Extract world time from level.dat.json if it exists
+    if [ -f "$LEVEL_DAT_JSON_PATH" ]; then
+        echo "Extracting world information from level.dat.json..."
+        # Extract Time payload using grep and cut
+        TIME_HEX=$(grep -o '"Label":"Time","Payload":"[^"]*"' "$LEVEL_DAT_JSON_PATH" | cut -d '"' -f 6)
+        if [ -n "$TIME_HEX" ]; then
+            # Convert hex to decimal
+            TIME_DEC=$(hex_to_decimal "$TIME_HEX")
+            echo "World Time: $TIME_DEC ticks"
+            # Calculate days (20 min per day, 24000 ticks per day)
+            DAYS=$(($TIME_DEC / 24000))
+            WORLD_INFO="World Time: $TIME_DEC ticks (Day $DAYS)"
+        else
+            WORLD_INFO="Time value not found in level.dat.json"
+        fi
+        
+        # Extract world name if available
+        LEVEL_NAME=$(grep -o '"Label":"LevelName","Payload":"[^"]*"' "$LEVEL_DAT_JSON_PATH" | cut -d '"' -f 6)
+        if [ -n "$LEVEL_NAME" ]; then
+            WORLD_INFO="$WORLD_INFO\nWorld Name: $LEVEL_NAME"
+        fi
+    else
+        WORLD_INFO="Could not generate level.dat.json"
+    fi
+fi
+
 # Take a snapshot if requested
 if [ "$TAKE_SNAPSHOT" = true ]; then
     echo "Preparing to take a snapshot with Chunky..."
@@ -343,14 +410,14 @@ if [ "$TAKE_SNAPSHOT" = true ]; then
                     chmod +x ./discord.sh
                     
                     # Format date for the message
-                    CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
+                    # CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
                     
-                    # Send notification with the snapshot
+                    # Send notification with the snapshot and world information
                     ./discord.sh --webhook-url "$DISCORD_WEBHOOK_URL" \
                               --file "$LATEST_SNAPSHOT" \
                               --username "$DISCORD_WEBHOOK_USERNAME" \
                               --avatar "$DISCORD_WEBHOOK_AVATAR_URL" \
-                              --text ""
+                              --text "$WORLD_INFO"
                 else
                     echo "Error: discord.sh not found or couldn't be downloaded."
                     echo "Discord notification will be skipped."
