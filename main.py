@@ -878,14 +878,13 @@ class ChunkyTimelapseApp(QMainWindow):
             QMessageBox.warning(self, "Error", "Please select a scene first")
             return
             
-        # Verify that world directory is set for proper day calculation
+        # Warning about world directory if not set but don't prevent video creation
         if not self.world_dir or not os.path.exists(self.world_dir):
-            QMessageBox.warning(
+            QMessageBox.information(
                 self, 
-                "World Directory Required", 
-                "Please select a world directory first. This is needed to calculate the correct day values for each world."
+                "World Directory Not Set", 
+                "No world directory selected. Day values in the video will use sequence numbers instead of actual game days."
             )
-            return
             
         # Check for snapshots
         snapshot_dir = os.path.join(self.scenes_dir, self.scene_name, "snapshots")
@@ -924,9 +923,9 @@ class ChunkyTimelapseApp(QMainWindow):
                 sorted_snapshots.append((snapshot, datetime.min, "unknown"))
         
         # Log the unsorted world names first (for debugging)
-        self.append_to_log("Snapshots before sorting:")
-        for snapshot, _, world_name in sorted_snapshots:
-            self.append_to_log(f"  - {os.path.basename(snapshot)} ({world_name})")
+        # self.append_to_log("Snapshots before sorting:")
+        # for snapshot, _, world_name in sorted_snapshots:
+        #     self.append_to_log(f"  - {os.path.basename(snapshot)} ({world_name})")
                 
         # Sort by date (chronologically)
         sorted_snapshots.sort(key=lambda x: x[1])
@@ -935,10 +934,10 @@ class ChunkyTimelapseApp(QMainWindow):
         snapshot_files = [item[0] for item in sorted_snapshots]
         
         # Log the sorted world names (for debugging)
-        self.append_to_log("Snapshots after sorting:")
-        for i, (snapshot, date, world_name) in enumerate(sorted_snapshots):
-            date_str = date.strftime("%d/%m/%Y") if date != datetime.min else "No date"
-            self.append_to_log(f"  {i+1}. {os.path.basename(snapshot)} - {world_name} ({date_str})")
+        # self.append_to_log("Snapshots after sorting:")
+        # for i, (snapshot, date, world_name) in enumerate(sorted_snapshots):
+        #     date_str = date.strftime("%d/%m/%Y") if date != datetime.min else "No date"
+        #     self.append_to_log(f"  {i+1}. {os.path.basename(snapshot)} - {world_name} ({date_str})")
         
         self.append_to_log(f"Sorted {len(snapshot_files)} snapshots chronologically by date in world names")
             
