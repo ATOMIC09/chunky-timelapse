@@ -18,6 +18,10 @@ Chunky Timelapse Generator is designed to streamline the process of creating bea
 
 Especially useful when you have backed up worlds with date suffixes, this tool can automatically sort and render them in chronological order.
 
+## Download
+You can see all versions from `Releases` tab
+- [`Download for Windows (v1.0)`](https://github.com/ATOMIC09/chunky-timelapse/releases/download/v1.0/ChunkyTimelapse-1.0-windows-x86_64.exe)
+
 ## Features
 
 - **Batch Render Multiple Worlds**: Select multiple Minecraft world directories and render them in sequence
