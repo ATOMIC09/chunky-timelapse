@@ -1,6 +1,18 @@
 # Chunky Timelapse Generator
 
+<p>
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0-blue.svg?cacheSeconds=2592000" />
+  <a href="#" target="_blank">
+    <img alt="License: MIT" src="https://img.shields.io/badge/License-GPLv3-yellow.svg" />
+  </a>
+  <a href="https://github.com/ATOMIC09/chunky-timelapse/tags">
+      <img alt="Download" src="https://img.shields.io/github/downloads/ATOMIC09/chunky-timelapse/total" />
+  </a>
+</p>
+
 A graphical tool for creating timelapses of Minecraft worlds using [Chunky](https://chunky-dev.github.io/docs/).
+
+![image](https://github.com/user-attachments/assets/ef8ce44c-31b9-4b26-8cb5-989126453c50)
 
 ## Overview
 
