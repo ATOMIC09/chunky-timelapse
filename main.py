@@ -12,6 +12,12 @@ import queue
 import cv2
 import numpy as np
 from natsort import natsorted
+# Add mcworldlib import for reading Minecraft world data
+try:
+    import mcworldlib as mc
+except ImportError:
+    mc = None
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QComboBox, QLineEdit, 
@@ -593,16 +599,17 @@ class ChunkyTimelapseApp(QMainWindow):
             return False
             
         try:
-            # Update world path in JSON
-            escaped_path = world_path.replace('\\', '\\\\')
-            self.scene_json_data['world']['path'] = escaped_path
+            # Update world path in JSON with normalized path separators
+            # Convert all path separators to forward slashes for consistency
+            normalized_path = world_path.replace('\\', '/')
+            self.scene_json_data['world']['path'] = normalized_path
             
             # Save updated JSON
             json_path = os.path.join(self.scenes_dir, self.scene_name, f"{self.scene_name}.json")
             with open(json_path, 'w') as f:
                 json.dump(self.scene_json_data, f, indent=2)
                 
-            self.append_to_log(f"Updated scene JSON with world path: {world_path}")
+            self.append_to_log(f"Updated scene JSON with world path: {normalized_path}")
             return True
                 
         except Exception as e:
@@ -900,6 +907,9 @@ class ChunkyTimelapseApp(QMainWindow):
             if not out.isOpened():
                 raise Exception(f"Could not open video writer with codec {settings['codec']}. Try using a different codec.")
             
+            # Dictionary to map worlds to day values
+            world_day_map = {}
+            
             # Process each image
             for i, img_path in enumerate(snapshot_files):
                 # Update progress in UI
@@ -915,6 +925,75 @@ class ChunkyTimelapseApp(QMainWindow):
                 # Resize if needed
                 if resize_needed:
                     frame = cv2.resize(frame, output_size, interpolation=cv2.INTER_LANCZOS4)
+                
+                # Extract world name from filename for day calculation
+                base_name = os.path.basename(img_path)
+                # Extract world name from pattern: scene-sppvalue-worldname.png
+                world_name_match = re.search(f"{self.scene_name}-\\d+-(.+)\\.png", base_name)
+                
+                # Default day value
+                day_text = f"Day {i+1}"
+                
+                if world_name_match:
+                    world_name = world_name_match.group(1)
+                    
+                    # Check if we have already calculated for this world
+                    if world_name in world_day_map:
+                        day_value = world_day_map[world_name]
+                    else:
+                        # Try to calculate the actual day value using mcworldlib
+                        day_value = None
+                        if mc is not None:
+                            try:
+                                world_path = os.path.join(self.world_dir, world_name)
+                                if os.path.exists(world_path):
+                                    self.log_update_signal.emit(f"Reading Minecraft data from: {world_path}")
+                                    world = mc.load(world_path)
+                                    time_value = world.level['Data']['Time']
+                                    days = time_value // 24000
+                                    day_value = days
+                                    world_day_map[world_name] = day_value
+                                    self.log_update_signal.emit(f"World '{world_name}' is on day {day_value}")
+                            except Exception as e:
+                                self.log_update_signal.emit(f"Error reading day value: {str(e)}")
+                        
+                        if day_value is None:
+                            day_value = i+1  # Fallback
+                    
+                    day_text = f"Day {day_value}"
+                
+                # Add text to the frame
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 1.2
+                font_thickness = 2
+                
+                # Draw text with black outline for better visibility
+                text_position = (20, 50)  # Top-left corner with margin
+                
+                # Draw black outline
+                for dx, dy in [(-1,-1), (-1,1), (1,-1), (1,1)]:
+                    cv2.putText(
+                        frame, 
+                        day_text, 
+                        (text_position[0]+dx, text_position[1]+dy), 
+                        font, 
+                        font_scale, 
+                        (0,0,0), 
+                        font_thickness+1, 
+                        cv2.LINE_AA
+                    )
+                
+                # Draw white text on top
+                cv2.putText(
+                    frame, 
+                    day_text, 
+                    text_position, 
+                    font, 
+                    font_scale, 
+                    (255,255,255), 
+                    font_thickness, 
+                    cv2.LINE_AA
+                )
                     
                 # Write the frame
                 out.write(frame)
