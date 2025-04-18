@@ -11,6 +11,8 @@ import threading
 import queue
 import cv2
 from datetime import datetime
+import urllib.request
+import urllib.error
 
 # Add mcworldlib import for reading Minecraft world data
 try:
@@ -183,6 +185,12 @@ class ChunkyTimelapseApp(QMainWindow):
         self.log_update_signal.connect(self.append_to_log)
         self.progress_update_signal.connect(self.update_progress_bar)
         
+        # Auto-detect ChunkyLauncher.jar in the same directory as the script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        chunky_path = os.path.join(script_dir, "ChunkyLauncher.jar")
+        if os.path.exists(chunky_path):
+            self.chunky_launcher_path = chunky_path
+            
         self.initUI()
         
     def initUI(self):
@@ -205,11 +213,17 @@ class ChunkyTimelapseApp(QMainWindow):
         chunky_layout = QHBoxLayout()
         self.chunky_path_edit = QLineEdit()
         self.chunky_path_edit.setPlaceholderText("Path to ChunkyLauncher.jar")
+        # Set the path if auto-detected
+        if self.chunky_launcher_path:
+            self.chunky_path_edit.setText(self.chunky_launcher_path)
         self.chunky_path_edit.setReadOnly(True)
         chunky_browse_btn = QPushButton("Browse...")
         chunky_browse_btn.clicked.connect(self.browse_chunky_launcher)
+        chunky_download_btn = QPushButton("Download")
+        chunky_download_btn.clicked.connect(self.download_chunky_launcher)
         chunky_layout.addWidget(self.chunky_path_edit)
         chunky_layout.addWidget(chunky_browse_btn)
+        chunky_layout.addWidget(chunky_download_btn)
         paths_layout.addRow("Chunky Launcher:", chunky_layout)
         
         # Scenes Directory
@@ -1103,6 +1117,41 @@ class ChunkyTimelapseApp(QMainWindow):
         except Exception as e:
             error_msg = f"Error creating video: {str(e)}"
             self.log_update_signal.emit(error_msg)
+            
+    def download_chunky_launcher(self):
+        """Download the ChunkyLauncher.jar from the official URL"""
+        chunky_url = "https://chunkyupdate.lemaik.de/ChunkyLauncher.jar"
+        download_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ChunkyLauncher.jar")
+        
+        try:
+            self.append_to_log(f"Downloading ChunkyLauncher.jar from {chunky_url}...")
+            
+            # Create a progress reporting function
+            def report_progress(count, block_size, total_size):
+                percent = int(count * block_size * 100 / total_size)
+                self.log_update_signal.emit(f"Download progress: {percent}% ({count * block_size} / {total_size} bytes)")
+            
+            # Download the file with progress updates
+            urllib.request.urlretrieve(chunky_url, download_path, reporthook=report_progress)
+            
+            # Set the downloaded path as the current launcher path
+            self.chunky_launcher_path = download_path
+            self.chunky_path_edit.setText(download_path)
+            
+            self.append_to_log(f"Download complete. Saved to {download_path}")
+            QMessageBox.information(self, "Download Complete", f"ChunkyLauncher.jar has been downloaded to the current directory.")
+            
+            # Update render button state
+            self.update_render_button_state()
+            
+        except urllib.error.URLError as e:
+            error_msg = f"Download failed: {str(e)}"
+            self.append_to_log(f"ERROR: {error_msg}")
+            QMessageBox.critical(self, "Download Error", error_msg)
+        except Exception as e:
+            error_msg = f"Unexpected error during download: {str(e)}"
+            self.append_to_log(f"ERROR: {error_msg}")
+            QMessageBox.critical(self, "Download Error", error_msg)
 
 
 def main():
