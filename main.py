@@ -10,8 +10,8 @@ from pathlib import Path
 import threading
 import queue
 import cv2
-import numpy as np
-from natsort import natsorted
+from datetime import datetime
+
 # Add mcworldlib import for reading Minecraft world data
 try:
     import mcworldlib as mc
@@ -878,6 +878,15 @@ class ChunkyTimelapseApp(QMainWindow):
             QMessageBox.warning(self, "Error", "Please select a scene first")
             return
             
+        # Verify that world directory is set for proper day calculation
+        if not self.world_dir or not os.path.exists(self.world_dir):
+            QMessageBox.warning(
+                self, 
+                "World Directory Required", 
+                "Please select a world directory first. This is needed to calculate the correct day values for each world."
+            )
+            return
+            
         # Check for snapshots
         snapshot_dir = os.path.join(self.scenes_dir, self.scene_name, "snapshots")
         if not os.path.exists(snapshot_dir):
@@ -894,9 +903,45 @@ class ChunkyTimelapseApp(QMainWindow):
             )
             return
             
-        # Sort snapshots naturally to ensure correct order
-        snapshot_files = natsorted(snapshot_files)
+        # Sort snapshots by extracting dates from world names
+        sorted_snapshots = []
+        for snapshot in snapshot_files:
+            # Extract world name from pattern: scene-sppvalue-worldname.png
+            base_name = os.path.basename(snapshot)
+            world_name_match = re.search(f"{self.scene_name}-\\d+-(.+)\\.png", base_name)
+            if world_name_match:
+                world_name = world_name_match.group(1)
+                # Parse date from world name
+                parsed_date = self.parse_date_from_world_name(world_name)
+                if parsed_date:
+                    self.append_to_log(f"Found date in snapshot: {world_name} → {parsed_date.strftime('%d/%m/%Y')}")
+                    sorted_snapshots.append((snapshot, parsed_date, world_name))
+                else:
+                    # If no date in the world name, add it with minimal date for sorting
+                    sorted_snapshots.append((snapshot, datetime.min, world_name))
+            else:
+                # If we can't extract a world name, put it at the beginning
+                sorted_snapshots.append((snapshot, datetime.min, "unknown"))
         
+        # Log the unsorted world names first (for debugging)
+        self.append_to_log("Snapshots before sorting:")
+        for snapshot, _, world_name in sorted_snapshots:
+            self.append_to_log(f"  - {os.path.basename(snapshot)} ({world_name})")
+                
+        # Sort by date (chronologically)
+        sorted_snapshots.sort(key=lambda x: x[1])
+        
+        # Extract just the file paths after sorting
+        snapshot_files = [item[0] for item in sorted_snapshots]
+        
+        # Log the sorted world names (for debugging)
+        self.append_to_log("Snapshots after sorting:")
+        for i, (snapshot, date, world_name) in enumerate(sorted_snapshots):
+            date_str = date.strftime("%d/%m/%Y") if date != datetime.min else "No date"
+            self.append_to_log(f"  {i+1}. {os.path.basename(snapshot)} - {world_name} ({date_str})")
+        
+        self.append_to_log(f"Sorted {len(snapshot_files)} snapshots chronologically by date in world names")
+            
         # Ask user for video settings
         settings_dialog = VideoSettingsDialog(self)
         if settings_dialog.exec() != QDialog.DialogCode.Accepted:
@@ -912,7 +957,7 @@ class ChunkyTimelapseApp(QMainWindow):
             args=(snapshot_files, settings),
             daemon=True
         ).start()
-        
+
     def create_video_thread(self, snapshot_files, settings):
         """Thread for creating video without blocking UI"""
         try:
@@ -977,8 +1022,9 @@ class ChunkyTimelapseApp(QMainWindow):
                 # Extract world name from pattern: scene-sppvalue-worldname.png
                 world_name_match = re.search(f"{self.scene_name}-\\d+-(.+)\\.png", base_name)
                 
-                # Default day value
-                day_text = f"Day {i+1}"
+                # Default day value and world name
+                day_value = i+1
+                world_name = "Unknown"
                 
                 if world_name_match:
                     world_name = world_name_match.group(1)
@@ -988,7 +1034,6 @@ class ChunkyTimelapseApp(QMainWindow):
                         day_value = world_day_map[world_name]
                     else:
                         # Try to calculate the actual day value using mcworldlib
-                        day_value = None
                         if mc is not None:
                             try:
                                 world_path = os.path.join(self.world_dir, world_name)
@@ -1002,11 +1047,9 @@ class ChunkyTimelapseApp(QMainWindow):
                                     self.log_update_signal.emit(f"World '{world_name}' is on day {day_value}")
                             except Exception as e:
                                 self.log_update_signal.emit(f"Error reading day value: {str(e)}")
-                        
-                        if day_value is None:
-                            day_value = i+1  # Fallback
-                    
-                    day_text = f"Day {day_value}"
+                
+                # Create text with both day number and world name
+                day_text = f"Day {day_value} ({world_name})"
                 
                 # Add text to the frame
                 font = cv2.FONT_HERSHEY_SIMPLEX
@@ -1061,6 +1104,7 @@ class ChunkyTimelapseApp(QMainWindow):
         except Exception as e:
             error_msg = f"Error creating video: {str(e)}"
             self.log_update_signal.emit(error_msg)
+
 
 def main():
     app = QApplication(sys.argv)
