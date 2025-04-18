@@ -382,6 +382,32 @@ class ChunkyTimelapseApp(QMainWindow):
             self.scan_worlds()
             self.update_render_button_state()
             
+    def parse_date_from_world_name(self, world_name):
+        """
+        Parses a date from a world name with format world-DDMMYY
+        Returns a datetime object if successful, or None if not a valid date format
+        """
+        # Try to extract a DDMMYY pattern from the world name
+        # Check for prefix like "world-" followed by DDMMYY
+        date_match = re.match(r'world-(\d{2})(\d{2})(\d{2})', world_name)
+        if date_match:
+            try:
+                day = int(date_match.group(1))
+                month = int(date_match.group(2))
+                year = int(date_match.group(3))
+                
+                # Add 2000 to the year (assuming 20xx for years)
+                year += 2000
+                
+                # Validate the date components
+                if 1 <= day <= 31 and 1 <= month <= 12:
+                    from datetime import datetime
+                    return datetime(year, month, day)
+            except ValueError:
+                # If date is invalid (e.g., February 31st), return None
+                pass
+        return None
+            
     def scan_worlds(self):
         """Scan for Minecraft worlds in the selected directory"""
         self.world_list = []
@@ -397,14 +423,35 @@ class ChunkyTimelapseApp(QMainWindow):
                 if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, "level.dat")):
                     self.world_list.append(item)
             
-            # Populate the list widget
+            # Sort worlds by date if they have DDMMYY format
+            worlds_with_dates = []
+            other_worlds = []
+            
+            for world in self.world_list:
+                parsed_date = self.parse_date_from_world_name(world)
+                if parsed_date:
+                    worlds_with_dates.append((world, parsed_date))
+                else:
+                    other_worlds.append(world)
+            
+            # Sort worlds with dates chronologically
+            worlds_with_dates.sort(key=lambda x: x[1])
+            
+            # Create final sorted list: date-based worlds first, then others
+            self.world_list = [world for world, _ in worlds_with_dates] + other_worlds
+            
+            # Populate the list widget with the sorted worlds
             self.world_list_widget.addItems(self.world_list)
             
             count = len(self.world_list)
+            date_sorted_count = len(worlds_with_dates)
             self.append_to_log(f"Found {count} Minecraft world{'s' if count != 1 else ''} in {self.world_dir}")
+            if date_sorted_count > 0:
+                self.append_to_log(f"Sorted {date_sorted_count} worlds by DDMMYY date format")
             
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to scan worlds: {str(e)}")
+            self.append_to_log(f"Error scanning worlds: {str(e)}")
     
     def select_all_worlds(self):
         for i in range(self.world_list_widget.count()):
