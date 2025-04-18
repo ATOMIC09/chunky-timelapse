@@ -27,6 +27,7 @@ for /f "tokens=1 delims=>=" %%a in ('type ..\..\requirements.txt ^| findstr /v "
         )
     )
 )
+echo.
 
 REM Step 1: Run nuitka to build main.exe
 echo 1. Running nuitka to build main.exe...

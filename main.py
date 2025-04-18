@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QAbstractItemView, QProgressBar, QDialog, QSlider
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
+from PyQt6.QtGui import QIcon
 
 class ProcessOutputReader(QObject):
     output_received = pyqtSignal(str)
@@ -1165,6 +1166,13 @@ class ChunkyTimelapseApp(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+
+    # Set application icon for taskbar and title bar
+    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                            "auto_builder", "asset", "windows-logo.ico")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+
     window = ChunkyTimelapseApp()
     window.show()
     sys.exit(app.exec())
