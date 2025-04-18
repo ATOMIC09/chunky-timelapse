@@ -191,11 +191,25 @@ class ChunkyTimelapseApp(QMainWindow):
         if os.path.exists(chunky_path):
             self.chunky_launcher_path = chunky_path
             
+        # Check if .chunky directory exists
+        self.chunky_home = os.path.join(os.path.expanduser("~"), ".chunky")
+        self.chunky_initialized = os.path.exists(self.chunky_home)
+            
         self.initUI()
         
     def initUI(self):
         self.setWindowTitle("Chunky Timelapse Generator")
         self.setGeometry(100, 100, 1000, 800)
+        
+        # Check if .chunky directory exists and notify if it doesn't
+        if not self.chunky_initialized:
+            QMessageBox.warning(
+                self,
+                "Chunky Not Initialized",
+                "The Chunky configuration directory (.chunky) was not found.\n\n"
+                "Please run ChunkyLauncher.jar at least once to set up the configuration "
+                "before using this application."
+            )
         
         # Create main splitter for upper and lower parts
         main_splitter = QSplitter(Qt.Orientation.Vertical)
