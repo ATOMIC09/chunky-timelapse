@@ -1,0 +1,3 @@
+PyQt6>=6.9.0
+opencv-python>=4.11.0.86
+mcworldlib>=2023.7.13
