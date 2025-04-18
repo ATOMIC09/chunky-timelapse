@@ -95,7 +95,7 @@ class VideoSettingsDialog(QDialog):
         codec_layout = QVBoxLayout()
         self.codec_combo = QComboBox()
         # Updated codecs for better compatibility
-        self.codec_combo.addItem("H.264 (.mp4) - Recommended for Messenger", "h264")
+        self.codec_combo.addItem("H.264 (.mp4)", "h264")
         self.codec_combo.addItem("MPEG-4 (.mp4)", "mp4v")
         self.codec_combo.addItem("AVI (.avi)", "XVID")
         codec_layout.addWidget(self.codec_combo)
