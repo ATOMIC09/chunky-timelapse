@@ -10,8 +10,6 @@
   </a>
 </p>
 
-A graphical tool for creating timelapses of Minecraft worlds using [Chunky](https://chunky-dev.github.io/docs/).
-
 ![image](https://github.com/user-attachments/assets/ef8ce44c-31b9-4b26-8cb5-989126453c50)
 
 ## Overview
