@@ -299,6 +299,7 @@ class ChunkyTimelapseApp(QMainWindow):
         if self.chunky_launcher_path:
             self.chunky_path_edit.setText(self.chunky_launcher_path)
         self.chunky_path_edit.setReadOnly(True)
+        
         chunky_browse_btn = QPushButton("Browse...")
         chunky_browse_btn.clicked.connect(self.browse_chunky_launcher)
         chunky_download_btn = QPushButton("Download")
@@ -1247,6 +1248,16 @@ class ChunkyTimelapseApp(QMainWindow):
             # Use Documents folder on macOS to avoid read-only app bundle issues
             documents_dir = os.path.join(os.path.expanduser("~"), "Documents")
             download_dir = os.path.join(documents_dir, "ChunkyTimelapse")
+            # Create the ChunkyTimelapse directory if it doesn't exist
+            if not os.path.exists(download_dir):
+                try:
+                    os.makedirs(download_dir)
+                    self.append_to_log(f"Created directory: {download_dir}")
+                except Exception as e:
+                    error_msg = f"Failed to create directory {download_dir}: {str(e)}"
+                    self.append_to_log(f"ERROR: {error_msg}")
+                    QMessageBox.critical(self, "Directory Error", error_msg)
+                    return
         else:  # Windows and others
             download_dir = '.'
         download_path = os.path.join(download_dir, "ChunkyLauncher.jar")
