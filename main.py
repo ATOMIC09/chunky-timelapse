@@ -860,12 +860,17 @@ class ChunkyTimelapseApp(QMainWindow):
             cmd_str = " ".join(cmd)
             self.append_to_log(f"Starting render with command:\n{cmd_str}\n")
             
-            # Start the process with pipe for stdout and stderr
+            creation_flags = 0
+            if sys.platform == 'win32':
+                creation_flags = subprocess.CREATE_NO_WINDOW
+
+            # Start the process with pipe for stdout and stderr, and hide window on Windows
             self.current_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=False
+                universal_newlines=False,
+                creationflags=creation_flags
             )
             
             # Set up the output reader
