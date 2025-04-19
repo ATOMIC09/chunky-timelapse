@@ -1131,34 +1131,80 @@ class ChunkyTimelapseApp(QMainWindow):
     def download_chunky_launcher(self):
         """Download the ChunkyLauncher.jar from the official URL"""
         chunky_url = "https://chunkyupdate.lemaik.de/ChunkyLauncher.jar"
-        download_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ChunkyLauncher.jar")
+        
+        # Get the correct path whether running as script or compiled exe
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # Running as a Python script
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            
+        download_path = os.path.join(base_path, "ChunkyLauncher.jar")
+        
+        # Create a download dialog with progress bar
+        download_dialog = QDialog(self)
+        download_dialog.setWindowTitle("Downloading ChunkyLauncher.jar")
+        download_dialog.setFixedSize(400, 100)
+        
+        layout = QVBoxLayout(download_dialog)
+        
+        # Add progress bar
+        progress_bar = QProgressBar(download_dialog)
+        progress_bar.setMinimum(0)
+        progress_bar.setMaximum(100)
+        progress_bar.setValue(0)
+        
+        # Add status label
+        status_label = QLabel("Starting download...")
+        
+        layout.addWidget(status_label)
+        layout.addWidget(progress_bar)
+        
+        # Show dialog but don't block
+        download_dialog.show()
+        QApplication.processEvents()
         
         try:
             self.append_to_log(f"Downloading ChunkyLauncher.jar from {chunky_url}...")
+            self.append_to_log(f"Will save to: {download_path}")
             
-            # Create a progress reporting function
+            # Create a progress reporting function that updates the progress bar
             def report_progress(count, block_size, total_size):
-                percent = int(count * block_size * 100 / total_size)
-                self.log_update_signal.emit(f"Download progress: {percent}% ({count * block_size} / {total_size} bytes)")
+                if total_size > 0:
+                    percent = int(count * block_size * 100 / total_size)
+                    progress_bar.setValue(percent)
+                    status_label.setText(f"Download progress: {percent}% ({count * block_size:,} / {total_size:,} bytes)")
+                    # Process events to update UI
+                    QApplication.processEvents()
             
             # Download the file with progress updates
             urllib.request.urlretrieve(chunky_url, download_path, reporthook=report_progress)
+            
+            # Close the download dialog
+            download_dialog.accept()
             
             # Set the downloaded path as the current launcher path
             self.chunky_launcher_path = download_path
             self.chunky_path_edit.setText(download_path)
             
             self.append_to_log(f"Download complete. Saved to {download_path}")
-            QMessageBox.information(self, "Download Complete", f"ChunkyLauncher.jar has been downloaded to the current directory.")
+            QMessageBox.information(self, "Download Complete", f"ChunkyLauncher.jar has been downloaded to the same directory as the application.")
             
             # Update render button state
             self.update_render_button_state()
             
         except urllib.error.URLError as e:
+            # Close the dialog in case of error
+            download_dialog.reject()
+            
             error_msg = f"Download failed: {str(e)}"
             self.append_to_log(f"ERROR: {error_msg}")
             QMessageBox.critical(self, "Download Error", error_msg)
         except Exception as e:
+            # Close the dialog in case of error
+            download_dialog.reject()
+            
             error_msg = f"Unexpected error during download: {str(e)}"
             self.append_to_log(f"ERROR: {error_msg}")
             QMessageBox.critical(self, "Download Error", error_msg)
