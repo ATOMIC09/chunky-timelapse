@@ -8,7 +8,11 @@
   </a>
 </p>
 
-![image](https://github.com/user-attachments/assets/ef8ce44c-31b9-4b26-8cb5-989126453c50)
+![image](https://github.com/user-attachments/assets/bd76cc3a-fe17-4b46-b684-d9df44a58ede)
+<h6 align="center"><i>Main GUI</i></h6>
+
+https://github.com/user-attachments/assets/df0b4e4a-1fae-4593-a4f4-6b04ffe66106
+<h6 align="center"><i>Rendered result</i></h6>
 
 ## Overview
 
@@ -19,6 +23,7 @@ Especially useful when you have backed up worlds with date suffixes, this tool c
 ## Download
 You can see all versions from `Releases` tab
 - [`Download for Windows (v1.0)`](https://github.com/ATOMIC09/chunky-timelapse/releases/download/v1.0/ChunkyTimelapse-1.0-windows-x86_64.exe)
+- [`Download for macOS (Intel) (v1.0)`](https://github.com/ATOMIC09/chunky-timelapse/releases/download/v1.0/ChunkyTimelapse-1.0-macintel-x86_64.dmg)
 
 *(If you found any bugs of the exe, please try running `main.py` instead)*
 
