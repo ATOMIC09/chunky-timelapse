@@ -211,6 +211,7 @@ class ChunkyTimelapseApp(QMainWindow):
         self.currently_rendering = False
         self.snapshot_pattern = None
         self.download_thread = None
+        self.cancel_rendering = False
         
         # Connect signals to slots
         self.log_update_signal.connect(self.append_to_log)
@@ -405,7 +406,12 @@ class ChunkyTimelapseApp(QMainWindow):
         self.render_button.clicked.connect(self.start_render_queue)
         self.render_button.setEnabled(False)
         
+        self.cancel_button = QPushButton("Cancel Rendering")
+        self.cancel_button.clicked.connect(self.cancel_rendering_process)
+        self.cancel_button.setEnabled(False)
+        
         buttons_layout.addWidget(self.render_button)
+        buttons_layout.addWidget(self.cancel_button)
         
         upper_layout.addLayout(buttons_layout)
         
@@ -701,6 +707,8 @@ class ChunkyTimelapseApp(QMainWindow):
         # Setup the render queue
         self.render_queue = selected_worlds.copy()
         self.currently_rendering = True
+        self.cancel_rendering = False
+        self.cancel_button.setEnabled(True)
         
         # Find the snapshot pattern from the scene directory to use for renaming
         self.detect_snapshot_pattern()
@@ -736,6 +744,12 @@ class ChunkyTimelapseApp(QMainWindow):
         
     def process_render_queue(self):
         """Process the next world in the render queue"""
+        if self.cancel_rendering:
+            self.append_to_log("Rendering process canceled.")
+            self.currently_rendering = False
+            self.cancel_button.setEnabled(False)
+            return
+        
         if not self.render_queue:
             self.append_to_log("Batch rendering complete!")
             self.currently_rendering = False
@@ -746,6 +760,7 @@ class ChunkyTimelapseApp(QMainWindow):
             
             # Re-enable UI elements that might have been disabled during rendering
             self.render_button.setEnabled(True)
+            self.cancel_button.setEnabled(False)
             return
                 
         # Get the next world to render
@@ -1315,6 +1330,15 @@ class ChunkyTimelapseApp(QMainWindow):
         dialog.reject()
         self.append_to_log(f"ERROR: {error}")
         QMessageBox.critical(self, "Download Error", error)
+
+    def cancel_rendering_process(self):
+        """Cancel the rendering process"""
+        self.append_to_log("Canceling rendering process...")
+        self.cancel_rendering = True
+        if self.current_process:
+            self.current_process.terminate()
+            self.append_to_log("Terminated current rendering process.")
+        self.cancel_button.setEnabled(False)
 
 def main():
     app = QApplication(sys.argv)
