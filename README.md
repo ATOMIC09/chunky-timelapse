@@ -1,10 +1,8 @@
 # Chunky Timelapse Generator
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0-blue.svg?cacheSeconds=2592000" />
-  <a href="#" target="_blank">
-    <img alt="License: MIT" src="https://img.shields.io/badge/License-GPLv3-yellow.svg" />
-  </a>
+  <img alt="GitHub Release" src="https://img.shields.io/github/v/release/ATOMIC09/chunky-timelapse">
+  <img alt="GitHub License" src="https://img.shields.io/github/license/ATOMIC09/chunky-timelapse">
   <a href="https://github.com/ATOMIC09/chunky-timelapse/tags">
       <img alt="Download" src="https://img.shields.io/github/downloads/ATOMIC09/chunky-timelapse/total" />
   </a>
