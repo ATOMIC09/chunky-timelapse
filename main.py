@@ -216,17 +216,54 @@ class ChunkyTimelapseApp(QMainWindow):
         self.log_update_signal.connect(self.append_to_log)
         self.progress_update_signal.connect(self.update_progress_bar)
         
-        # Auto-detect ChunkyLauncher.jar in the same directory as the script
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        chunky_path = os.path.join(script_dir, "ChunkyLauncher.jar")
-        if os.path.exists(chunky_path):
-            self.chunky_launcher_path = chunky_path
+        # Find ChunkyLauncher.jar in various locations
+        self.find_chunky_launcher()
             
         # Check if .chunky directory exists
         self.chunky_home = os.path.join(os.path.expanduser("~"), ".chunky")
         self.chunky_initialized = os.path.exists(self.chunky_home)
             
         self.initUI()
+        
+    def find_chunky_launcher(self):
+        """Find ChunkyLauncher.jar in various potential locations"""
+        # List of locations to check
+        search_locations = ['.']  # Current directory is always checked
+        
+        # 1. Check the directory of the executable if running as compiled app
+        if getattr(sys, 'frozen', False):
+            exe_dir = os.path.dirname(sys.executable)
+            search_locations.append(exe_dir)
+        
+        # 2. Check the directory of the script if running as Python script
+        script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        search_locations.append(script_dir)
+        
+        # 3. Check platform-specific application directories
+        if sys.platform == 'win32':  # Windows
+            app_data_dir = os.path.join(os.environ.get("APPDATA", ""), "ChunkyTimelapse")
+            if os.path.exists(app_data_dir):
+                search_locations.append(app_data_dir)
+        elif sys.platform == 'darwin':  # macOS
+            documents_dir = os.path.join(os.path.expanduser("~"), "Documents")
+            app_data_dir = os.path.join(documents_dir, "ChunkyTimelapse")
+            if os.path.exists(app_data_dir):
+                search_locations.append(app_data_dir)
+        else:  # Linux and others
+            app_data_dir = os.path.join(os.path.expanduser("~"), ".chunky-timelapse")
+            if os.path.exists(app_data_dir):
+                search_locations.append(app_data_dir)
+                
+        # Search for jar in all potential locations
+        for location in search_locations:
+            print(f"Searching for ChunkyLauncher.jar in: {location}")
+            jar_path = os.path.join(location, "ChunkyLauncher.jar")
+            if os.path.exists(jar_path) and os.path.isfile(jar_path):
+                self.chunky_launcher_path = jar_path
+                return
+                
+        # If not found, leave the path empty
+        self.chunky_launcher_path = ""
         
     def initUI(self):
         self.setWindowTitle("Chunky Timelapse Generator")
@@ -384,10 +421,24 @@ class ChunkyTimelapseApp(QMainWindow):
         
         # Log control buttons
         log_buttons_layout = QHBoxLayout()
+        
+        # Add source code link as leftmost element
+        source_link = QLabel()
+        source_link.setText("<a href='https://github.com/ATOMIC09/chunky-timelapse'>Source Code</a>")
+        source_link.setOpenExternalLinks(True)
+        source_link.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        log_buttons_layout.addWidget(source_link)
+        
+        # Add save log button
+        log_buttons_layout.addStretch()
+        self.save_log_button = QPushButton("Save Log")
+        self.save_log_button.clicked.connect(self.save_log_to_file)
+        log_buttons_layout.addWidget(self.save_log_button)
+        
         self.clear_log_button = QPushButton("Clear Log")
         self.clear_log_button.clicked.connect(self.clear_log)
-        log_buttons_layout.addStretch()
         log_buttons_layout.addWidget(self.clear_log_button)
+        
         log_layout.addLayout(log_buttons_layout)
         
         log_group.setLayout(log_layout)
@@ -412,6 +463,30 @@ class ChunkyTimelapseApp(QMainWindow):
         # Auto-scroll to bottom
         scrollbar = self.log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+        
+    def save_log_to_file(self):
+        """Save the log to a file with datetime in the filename"""
+        try:
+            # Generate filename with current datetime
+            timestamp = datetime.now().strftime("%H%M%S_%d%m%Y")
+            log_filename = f"log_{timestamp}.txt"
+            
+            # Ask user for save location
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "Save Log File", log_filename, "Text Files (*.txt)"
+            )
+            
+            if file_path:
+                # Write log content to file using UTF-8 encoding
+                with open(file_path, 'w', encoding='utf-8') as log_file:
+                    log_file.write(self.log_text.toPlainText())
+                
+                self.append_to_log(f"Log saved to: {file_path}")
+                QMessageBox.information(self, "Log Saved", f"Log has been saved to {file_path}")
+        except Exception as e:
+            error_msg = f"Error saving log: {str(e)}"
+            self.append_to_log(error_msg)
+            QMessageBox.critical(self, "Save Log Error", error_msg)
         
     def browse_chunky_launcher(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1162,20 +1237,19 @@ class ChunkyTimelapseApp(QMainWindow):
         except Exception as e:
             error_msg = f"Error creating video: {str(e)}"
             self.log_update_signal.emit(error_msg)
-            
+
     def download_chunky_launcher(self):
         """Download the ChunkyLauncher.jar from the official URL"""
         chunky_url = "https://chunkyupdate.lemaik.de/ChunkyLauncher.jar"
-        
-        # Get the correct path whether running as script or compiled exe
-        if getattr(sys, 'frozen', False):
-            # Running as compiled executable
-            base_path = os.path.dirname(sys.executable)
-        else:
-            # Running as a Python script
-            base_path = os.path.dirname(os.path.abspath(__file__))
-            
-        download_path = os.path.join(base_path, "ChunkyLauncher.jar")
+
+        # Choose download directory based on platform
+        if sys.platform == 'darwin':  # macOS
+            # Use Documents folder on macOS to avoid read-only app bundle issues
+            documents_dir = os.path.join(os.path.expanduser("~"), "Documents")
+            download_dir = os.path.join(documents_dir, "ChunkyTimelapse")
+        else:  # Windows and others
+            download_dir = '.'
+        download_path = os.path.join(download_dir, "ChunkyLauncher.jar")
         
         # Create a download dialog with progress bar
         download_dialog = QDialog(self)
@@ -1222,7 +1296,7 @@ class ChunkyTimelapseApp(QMainWindow):
         self.chunky_launcher_path = path
         self.chunky_path_edit.setText(path)
         self.append_to_log(f"Download complete. Saved to {path}")
-        QMessageBox.information(self, "Download Complete", f"ChunkyLauncher.jar has been downloaded to the same directory as the application.")
+        QMessageBox.information(self, "Download Complete", f"ChunkyLauncher.jar has been downloaded")
         self.update_render_button_state()
         
     def on_download_error(self, error, dialog):
@@ -1235,7 +1309,7 @@ def main():
     app = QApplication(sys.argv)
 
     # Set application icon for taskbar and title bar
-    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+    icon_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 
                             "auto_builder", "asset", "windows-logo.ico")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
