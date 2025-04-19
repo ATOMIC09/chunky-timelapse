@@ -10,8 +10,7 @@ import threading
 import queue
 import cv2
 from datetime import datetime
-import urllib.request
-import urllib.error
+import requests
 import mcworldlib as mc
 
 
@@ -21,7 +20,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QFormLayout, QMessageBox, QTextEdit, QSplitter,
     QListWidget, QAbstractItemView, QProgressBar, QDialog, QSlider
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt6.QtGui import QIcon
 
 class ProcessOutputReader(QObject):
@@ -59,6 +58,42 @@ class ProcessOutputReader(QObject):
     def stop(self):
         self.running = False
 
+class DownloadThread(QThread):
+    """Thread for downloading ChunkyLauncher.jar"""
+    progress_updated = pyqtSignal(int)
+    download_complete = pyqtSignal(str)
+    download_error = pyqtSignal(str)
+    
+    def __init__(self, url, save_path):
+        super().__init__()
+        self.url = url
+        self.save_path = save_path
+        
+    def run(self):
+        try:
+            response = requests.get(self.url, stream=True)
+            if response.status_code != 200:
+                self.download_error.emit(f"Failed to download file: {response.status_code}")
+                return
+                
+            total_size = int(response.headers.get('content-length', 0))
+            block_size = 1024  # 1 Kibibyte
+            downloaded = 0
+            
+            with open(self.save_path, 'wb') as file:
+                for data in response.iter_content(block_size):
+                    downloaded += len(data)
+                    file.write(data)
+                    if total_size:
+                        percent = int(downloaded * 100 / total_size)
+                        self.progress_updated.emit(percent)
+                        
+            self.download_complete.emit(self.save_path)
+        except Exception as e:
+            self.download_error.emit(f"Error downloading file: {str(e)}")
+            if os.path.exists(self.save_path):
+                os.remove(self.save_path)  # Clean up partially downloaded file
+
 class VideoSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -92,7 +127,6 @@ class VideoSettingsDialog(QDialog):
         codec_group = QGroupBox("Video Codec")
         codec_layout = QVBoxLayout()
         self.codec_combo = QComboBox()
-        # Updated codecs for better compatibility
         self.codec_combo.addItem("H.264 (.mp4)", "h264")
         self.codec_combo.addItem("MPEG-4 (.mp4)", "mp4v")
         self.codec_combo.addItem("AVI (.avi)", "XVID")
@@ -167,15 +201,16 @@ class ChunkyTimelapseApp(QMainWindow):
         # Default paths
         self.chunky_launcher_path = ""
         self.scenes_dir = os.path.join(os.path.expanduser("~"), ".chunky", "scenes")
-        self.world_dir = ""  # Now this is the parent directory containing multiple worlds
+        self.world_dir = ""
         self.scene_name = ""
         self.scene_json_data = None
         self.current_process = None
         self.output_reader = None
-        self.world_list = []  # Store list of worlds found
-        self.render_queue = []  # Queue of worlds to render
+        self.world_list = []
+        self.render_queue = [] 
         self.currently_rendering = False
         self.snapshot_pattern = None
+        self.download_thread = None
         
         # Connect signals to slots
         self.log_update_signal.connect(self.append_to_log)
@@ -1169,46 +1204,32 @@ class ChunkyTimelapseApp(QMainWindow):
             self.append_to_log(f"Downloading ChunkyLauncher.jar from {chunky_url}...")
             self.append_to_log(f"Will save to: {download_path}")
             
-            # Create a progress reporting function that updates the progress bar
-            def report_progress(count, block_size, total_size):
-                if total_size > 0:
-                    percent = int(count * block_size * 100 / total_size)
-                    progress_bar.setValue(percent)
-                    status_label.setText(f"Download progress: {percent}% ({count * block_size:,} / {total_size:,} bytes)")
-                    # Process events to update UI
-                    QApplication.processEvents()
+            # Create a download thread
+            self.download_thread = DownloadThread(chunky_url, download_path)
+            self.download_thread.progress_updated.connect(progress_bar.setValue)
+            self.download_thread.download_complete.connect(lambda path: self.on_download_complete(path, download_dialog))
+            self.download_thread.download_error.connect(lambda error: self.on_download_error(error, download_dialog))
+            self.download_thread.start()
             
-            # Download the file with progress updates
-            urllib.request.urlretrieve(chunky_url, download_path, reporthook=report_progress)
-            
-            # Close the download dialog
-            download_dialog.accept()
-            
-            # Set the downloaded path as the current launcher path
-            self.chunky_launcher_path = download_path
-            self.chunky_path_edit.setText(download_path)
-            
-            self.append_to_log(f"Download complete. Saved to {download_path}")
-            QMessageBox.information(self, "Download Complete", f"ChunkyLauncher.jar has been downloaded to the same directory as the application.")
-            
-            # Update render button state
-            self.update_render_button_state()
-            
-        except urllib.error.URLError as e:
-            # Close the dialog in case of error
-            download_dialog.reject()
-            
-            error_msg = f"Download failed: {str(e)}"
-            self.append_to_log(f"ERROR: {error_msg}")
-            QMessageBox.critical(self, "Download Error", error_msg)
         except Exception as e:
-            # Close the dialog in case of error
-            download_dialog.reject()
-            
             error_msg = f"Unexpected error during download: {str(e)}"
             self.append_to_log(f"ERROR: {error_msg}")
             QMessageBox.critical(self, "Download Error", error_msg)
-
+            
+    def on_download_complete(self, path, dialog):
+        """Handle successful download"""
+        dialog.accept()
+        self.chunky_launcher_path = path
+        self.chunky_path_edit.setText(path)
+        self.append_to_log(f"Download complete. Saved to {path}")
+        QMessageBox.information(self, "Download Complete", f"ChunkyLauncher.jar has been downloaded to the same directory as the application.")
+        self.update_render_button_state()
+        
+    def on_download_error(self, error, dialog):
+        """Handle download error"""
+        dialog.reject()
+        self.append_to_log(f"ERROR: {error}")
+        QMessageBox.critical(self, "Download Error", error)
 
 def main():
     app = QApplication(sys.argv)
