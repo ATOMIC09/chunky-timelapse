@@ -194,6 +194,8 @@ class ChunkyTimelapseApp(QMainWindow):
     # Add a signal for thread-safe log updates
     log_update_signal = pyqtSignal(str)
     progress_update_signal = pyqtSignal(int, int)  # current, total
+    # Add a signal for when a long process completes to re-enable UI
+    process_complete_signal = pyqtSignal()
     
     def __init__(self):
         super().__init__()
@@ -211,10 +213,13 @@ class ChunkyTimelapseApp(QMainWindow):
         self.currently_rendering = False
         self.snapshot_pattern = None
         self.download_thread = None
+        self.cancel_rendering = False
         
         # Connect signals to slots
         self.log_update_signal.connect(self.append_to_log)
         self.progress_update_signal.connect(self.update_progress_bar)
+        # Connect the process completion signal
+        self.process_complete_signal.connect(lambda: self._set_ui_enabled(True))
         
         # Find ChunkyLauncher.jar in various locations
         self.find_chunky_launcher()
@@ -299,33 +304,34 @@ class ChunkyTimelapseApp(QMainWindow):
         if self.chunky_launcher_path:
             self.chunky_path_edit.setText(self.chunky_launcher_path)
         self.chunky_path_edit.setReadOnly(True)
-        chunky_browse_btn = QPushButton("Browse...")
-        chunky_browse_btn.clicked.connect(self.browse_chunky_launcher)
-        chunky_download_btn = QPushButton("Download")
-        chunky_download_btn.clicked.connect(self.download_chunky_launcher)
+        
+        self.chunky_browse_btn = QPushButton("Browse...")
+        self.chunky_browse_btn.clicked.connect(self.browse_chunky_launcher)
+        self.chunky_download_btn = QPushButton("Download")
+        self.chunky_download_btn.clicked.connect(self.download_chunky_launcher)
         chunky_layout.addWidget(self.chunky_path_edit)
-        chunky_layout.addWidget(chunky_browse_btn)
-        chunky_layout.addWidget(chunky_download_btn)
+        chunky_layout.addWidget(self.chunky_browse_btn)
+        chunky_layout.addWidget(self.chunky_download_btn)
         paths_layout.addRow("Chunky Launcher:", chunky_layout)
         
         # Scenes Directory
         scenes_layout = QHBoxLayout()
         self.scenes_dir_edit = QLineEdit(self.scenes_dir)
         self.scenes_dir_edit.setReadOnly(True)
-        scenes_browse_btn = QPushButton("Browse...")
-        scenes_browse_btn.clicked.connect(self.browse_scenes_dir)
+        self.scenes_browse_btn = QPushButton("Browse...")
+        self.scenes_browse_btn.clicked.connect(self.browse_scenes_dir)
         scenes_layout.addWidget(self.scenes_dir_edit)
-        scenes_layout.addWidget(scenes_browse_btn)
+        scenes_layout.addWidget(self.scenes_browse_btn)
         paths_layout.addRow("Scenes Directory:", scenes_layout)
         
         # Scene selection
         self.scene_combo = QComboBox()
         self.scene_combo.currentTextChanged.connect(self.on_scene_selected)
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.clicked.connect(self.refresh_scenes)
+        self.scene_refresh_btn = QPushButton("Refresh")
+        self.scene_refresh_btn.clicked.connect(self.refresh_scenes)
         scene_layout = QHBoxLayout()
         scene_layout.addWidget(self.scene_combo)
-        scene_layout.addWidget(refresh_btn)
+        scene_layout.addWidget(self.scene_refresh_btn)
         paths_layout.addRow("Scene:", scene_layout)
         
         # Input Worlds Directory (parent directory containing multiple worlds)
@@ -333,13 +339,13 @@ class ChunkyTimelapseApp(QMainWindow):
         self.world_dir_edit = QLineEdit()
         self.world_dir_edit.setPlaceholderText("Path to parent directory containing Minecraft worlds")
         self.world_dir_edit.setReadOnly(True)
-        world_browse_btn = QPushButton("Browse...")
-        world_browse_btn.clicked.connect(self.browse_world_dir)
-        scan_worlds_btn = QPushButton("Scan Worlds")
-        scan_worlds_btn.clicked.connect(self.scan_worlds)
+        self.world_browse_btn = QPushButton("Browse...")
+        self.world_browse_btn.clicked.connect(self.browse_world_dir)
+        self.scan_worlds_btn = QPushButton("Scan Worlds")
+        self.scan_worlds_btn.clicked.connect(self.scan_worlds)
         world_layout.addWidget(self.world_dir_edit)
-        world_layout.addWidget(world_browse_btn)
-        world_layout.addWidget(scan_worlds_btn)
+        world_layout.addWidget(self.world_browse_btn)
+        world_layout.addWidget(self.scan_worlds_btn)
         paths_layout.addRow("Input Worlds:", world_layout)
         
         paths_group.setLayout(paths_layout)
@@ -404,7 +410,12 @@ class ChunkyTimelapseApp(QMainWindow):
         self.render_button.clicked.connect(self.start_render_queue)
         self.render_button.setEnabled(False)
         
+        self.cancel_button = QPushButton("Cancel Rendering")
+        self.cancel_button.clicked.connect(self.cancel_rendering_process)
+        self.cancel_button.setEnabled(False)
+        
         buttons_layout.addWidget(self.render_button)
+        buttons_layout.addWidget(self.cancel_button)
         
         upper_layout.addLayout(buttons_layout)
         
@@ -455,6 +466,33 @@ class ChunkyTimelapseApp(QMainWindow):
         font.setFamily("Courier New")
         return font
     
+    def _set_ui_enabled(self, enabled):
+        """Enable or disable UI elements during processing."""
+        # Configuration elements
+        self.chunky_browse_btn.setEnabled(enabled)
+        self.chunky_download_btn.setEnabled(enabled)
+        self.scenes_browse_btn.setEnabled(enabled)
+        self.scene_refresh_btn.setEnabled(enabled)
+        self.world_browse_btn.setEnabled(enabled)
+        self.scan_worlds_btn.setEnabled(enabled)
+        
+        # World list elements
+        self.world_list_widget.setEnabled(enabled)
+        self.select_all_btn.setEnabled(enabled)
+        self.deselect_all_btn.setEnabled(enabled)
+        
+        # Action buttons (handle render/cancel separately)
+        self.create_video_btn.setEnabled(enabled)
+        
+        # Only enable render button if conditions are met AND UI is enabled
+        if enabled:
+            self.update_render_button_state() # Checks conditions and enables if met
+        else:
+            self.render_button.setEnabled(False) # Always disable if UI is locked
+            
+        # Cancel button is handled separately based on rendering state
+        self.cancel_button.setEnabled(not enabled and self.currently_rendering)
+
     def clear_log(self):
         self.log_text.clear()
         
@@ -697,9 +735,14 @@ class ChunkyTimelapseApp(QMainWindow):
             QMessageBox.warning(self, "Error", "No worlds selected for rendering")
             return
             
+        # Disable UI elements
+        self._set_ui_enabled(False)
+        
         # Setup the render queue
         self.render_queue = selected_worlds.copy()
         self.currently_rendering = True
+        self.cancel_rendering = False
+        self.cancel_button.setEnabled(True)
         
         # Find the snapshot pattern from the scene directory to use for renaming
         self.detect_snapshot_pattern()
@@ -735,6 +778,13 @@ class ChunkyTimelapseApp(QMainWindow):
         
     def process_render_queue(self):
         """Process the next world in the render queue"""
+        if self.cancel_rendering:
+            self.append_to_log("Rendering process canceled.")
+            self.currently_rendering = False
+            # Re-enable UI
+            self.process_complete_signal.emit()
+            return
+        
         if not self.render_queue:
             self.append_to_log("Batch rendering complete!")
             self.currently_rendering = False
@@ -743,8 +793,8 @@ class ChunkyTimelapseApp(QMainWindow):
             self.progress_bar.setValue(self.progress_bar.maximum())
             self.progress_label.setText("Rendering complete")
             
-            # Re-enable UI elements that might have been disabled during rendering
-            self.render_button.setEnabled(True)
+            # Re-enable UI elements
+            self.process_complete_signal.emit()
             return
                 
         # Get the next world to render
@@ -810,12 +860,17 @@ class ChunkyTimelapseApp(QMainWindow):
             cmd_str = " ".join(cmd)
             self.append_to_log(f"Starting render with command:\n{cmd_str}\n")
             
-            # Start the process with pipe for stdout and stderr
+            creation_flags = 0
+            if sys.platform == 'win32':
+                creation_flags = subprocess.CREATE_NO_WINDOW
+
+            # Start the process with pipe for stdout and stderr, and hide window on Windows
             self.current_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=False
+                universal_newlines=False,
+                creationflags=creation_flags
             )
             
             # Set up the output reader
@@ -855,7 +910,8 @@ class ChunkyTimelapseApp(QMainWindow):
         # Process the next world in the queue
         # Using a timer to avoid threading issues
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(1000, self.process_render_queue)
+        # Use singleShot to ensure it runs on the main thread
+        QTimer.singleShot(100, self.process_render_queue) # Reduced delay
             
     def rename_snapshot_with_world_name(self):
         """Rename the snapshot file to include the world name"""
@@ -1008,6 +1064,10 @@ class ChunkyTimelapseApp(QMainWindow):
         
     def create_video_from_snapshots(self):
         """Create a video from the rendered snapshots"""
+        if self.currently_rendering:
+            QMessageBox.warning(self, "Error", "Cannot create video while rendering is in progress.")
+            return
+            
         if not self.scene_name:
             QMessageBox.warning(self, "Error", "Please select a scene first")
             return
@@ -1082,6 +1142,9 @@ class ChunkyTimelapseApp(QMainWindow):
             
         # Get settings
         settings = settings_dialog.get_settings()
+        
+        # Disable UI
+        self._set_ui_enabled(False)
         
         # Create video
         self.append_to_log(f"Creating video from {len(snapshot_files)} snapshots...")
@@ -1237,6 +1300,9 @@ class ChunkyTimelapseApp(QMainWindow):
         except Exception as e:
             error_msg = f"Error creating video: {str(e)}"
             self.log_update_signal.emit(error_msg)
+        finally:
+            # Ensure UI is re-enabled even if there was an error
+            self.process_complete_signal.emit()
 
     def download_chunky_launcher(self):
         """Download the ChunkyLauncher.jar from the official URL"""
@@ -1247,6 +1313,16 @@ class ChunkyTimelapseApp(QMainWindow):
             # Use Documents folder on macOS to avoid read-only app bundle issues
             documents_dir = os.path.join(os.path.expanduser("~"), "Documents")
             download_dir = os.path.join(documents_dir, "ChunkyTimelapse")
+            # Create the ChunkyTimelapse directory if it doesn't exist
+            if not os.path.exists(download_dir):
+                try:
+                    os.makedirs(download_dir)
+                    self.append_to_log(f"Created directory: {download_dir}")
+                except Exception as e:
+                    error_msg = f"Failed to create directory {download_dir}: {str(e)}"
+                    self.append_to_log(f"ERROR: {error_msg}")
+                    QMessageBox.critical(self, "Directory Error", error_msg)
+                    return
         else:  # Windows and others
             download_dir = '.'
         download_path = os.path.join(download_dir, "ChunkyLauncher.jar")
@@ -1274,6 +1350,9 @@ class ChunkyTimelapseApp(QMainWindow):
         download_dialog.show()
         QApplication.processEvents()
         
+        # Disable download button while downloading
+        self.chunky_download_btn.setEnabled(False)
+        
         try:
             self.append_to_log(f"Downloading ChunkyLauncher.jar from {chunky_url}...")
             self.append_to_log(f"Will save to: {download_path}")
@@ -1289,6 +1368,8 @@ class ChunkyTimelapseApp(QMainWindow):
             error_msg = f"Unexpected error during download: {str(e)}"
             self.append_to_log(f"ERROR: {error_msg}")
             QMessageBox.critical(self, "Download Error", error_msg)
+            # Re-enable download button on immediate error
+            self.chunky_download_btn.setEnabled(True)
             
     def on_download_complete(self, path, dialog):
         """Handle successful download"""
@@ -1298,12 +1379,25 @@ class ChunkyTimelapseApp(QMainWindow):
         self.append_to_log(f"Download complete. Saved to {path}")
         QMessageBox.information(self, "Download Complete", f"ChunkyLauncher.jar has been downloaded")
         self.update_render_button_state()
+        # Re-enable download button
+        self.chunky_download_btn.setEnabled(True)
         
     def on_download_error(self, error, dialog):
         """Handle download error"""
         dialog.reject()
         self.append_to_log(f"ERROR: {error}")
         QMessageBox.critical(self, "Download Error", error)
+        # Re-enable download button
+        self.chunky_download_btn.setEnabled(True)
+
+    def cancel_rendering_process(self):
+        """Cancel the rendering process"""
+        self.append_to_log("Canceling rendering process...")
+        self.cancel_rendering = True
+        if self.current_process:
+            self.current_process.terminate()
+            self.append_to_log("Terminated current rendering process.")
+        # UI re-enabling is handled by process_render_queue when cancel_rendering is True
 
 def main():
     app = QApplication(sys.argv)

@@ -1,0 +1,14 @@
+{
+  "title": "Chunky Timelapse Installer",
+  "icon": "../asset/mac-logo.icns",
+  "contents": [
+    { "x": 192, "y": 150, "type": "file", "path": "Chunky Timelapse.app" },
+    { "x": 448, "y": 150, "type": "link", "path": "/Applications" }
+  ],
+  "window": {
+    "size": {
+      "width": 600,
+      "height": 300
+    }
+  }
+}
