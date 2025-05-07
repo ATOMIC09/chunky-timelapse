@@ -467,8 +467,8 @@ class ChunkyTimelapseApp(QMainWindow):
     def save_log_to_file(self):
         """Save the log to a file with datetime in the filename"""
         try:
-            # Generate filename with current datetime
-            timestamp = datetime.now().strftime("%H%M%S_%d%m%Y")
+            # Generate filename with current datetime (YYMMDD format)
+            timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
             log_filename = f"log_{timestamp}.txt"
             
             # Ask user for save location
@@ -518,16 +518,16 @@ class ChunkyTimelapseApp(QMainWindow):
             
     def parse_date_from_world_name(self, world_name):
         """
-        Parses a date from a world name with format [arbitrary name]-DDMMYY
+        Parses a date from a world name with format [arbitrary name]-YYMMDD
         Returns a datetime object if successful, or None if not a valid date format
         """
-        # Look for any text followed by a dash and DDMMYY pattern
+        # Look for any text followed by a dash and YYMMDD pattern
         date_match = re.search(r'-(\d{2})(\d{2})(\d{2})$', world_name)
         if date_match:
             try:
-                day = int(date_match.group(1))
+                year = int(date_match.group(1))
                 month = int(date_match.group(2))
-                year = int(date_match.group(3))
+                day = int(date_match.group(3))
                 
                 # Add 2000 to the year (assuming 20xx for years)
                 year += 2000
@@ -556,7 +556,7 @@ class ChunkyTimelapseApp(QMainWindow):
                 if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, "level.dat")):
                     self.world_list.append(item)
             
-            # Sort worlds by date if they have DDMMYY format
+            # Sort worlds by date if they have YYMMDD format
             worlds_with_dates = []
             other_worlds = []
             
@@ -580,7 +580,7 @@ class ChunkyTimelapseApp(QMainWindow):
             date_sorted_count = len(worlds_with_dates)
             self.append_to_log(f"Found {count} Minecraft world{'s' if count != 1 else ''} in {self.world_dir}")
             if date_sorted_count > 0:
-                self.append_to_log(f"Sorted {date_sorted_count} worlds by DDMMYY date format")
+                self.append_to_log(f"Sorted {date_sorted_count} worlds by YYMMDD date format")
             
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to scan worlds: {str(e)}")
