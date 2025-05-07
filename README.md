@@ -22,7 +22,7 @@ Especially useful when you have backed up worlds with date suffixes, this tool c
 
 ## Download
 You can see all versions from `Releases` tab
-- [`Download for Windows (v1.0)`](https://github.com/ATOMIC09/chunky-timelapse/releases/download/v1.0/ChunkyTimelapse-1.0-windows-x86_64.exe)
+- [`Download for Windows (v1.0.1)`](https://github.com/ATOMIC09/chunky-timelapse/releases/download/v1.0.1/ChunkyTimelapse-1.0.1-windows-x86_64.exe)
 - [`Download for macOS (Intel) (v1.0)`](https://github.com/ATOMIC09/chunky-timelapse/releases/download/v1.0/ChunkyTimelapse-1.0-macintel-x86_64.dmg)
 
 *(If you found any bugs of the exe, please try running `main.py` instead)*
